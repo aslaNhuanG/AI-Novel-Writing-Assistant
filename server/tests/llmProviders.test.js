@@ -108,6 +108,18 @@ test("structured output profiles distinguish official, ModelScope Qwen and unkno
   assert.equal(glmProfile.supportsReasoningToggle, true);
   assert.equal(selectStructuredOutputStrategy(glmProfile, schema), "json_object");
 
+  const glmAlwaysThinkingProfile = resolveStructuredOutputProfile({
+    provider: "glm",
+    model: "glm-5.3-flash",
+    baseURL: "https://open.bigmodel.cn/api/paas/v4",
+    executionMode: "structured",
+  });
+  assert.equal(glmAlwaysThinkingProfile.family, "glm");
+  assert.equal(glmAlwaysThinkingProfile.nativeJsonObject, true);
+  assert.equal(glmAlwaysThinkingProfile.requiresNonThinkingForStructured, false);
+  assert.equal(glmAlwaysThinkingProfile.supportsReasoningToggle, false);
+  assert.equal(selectStructuredOutputStrategy(glmAlwaysThinkingProfile, schema), "json_object");
+
   const glmBehindProxyProfile = resolveStructuredOutputProfile({
     provider: "openai",
     model: "glm-5",
@@ -340,6 +352,16 @@ test("resolveLLMClientOptions applies structured reasoning and token guardrails"
     assert.equal(glm.reasoningEnabled, false);
     assert.equal(glm.reasoningForcedOff, true);
     assert.deepEqual(glm.modelKwargs?.thinking, { type: "disabled" });
+
+    const glmAlwaysThinking = await resolveLLMClientOptions("glm", {
+      model: "glm-5.3-flash",
+      executionMode: "structured",
+      structuredStrategy: "json_object",
+    });
+    assert.equal(glmAlwaysThinking.structuredProfile?.family, "glm");
+    assert.equal(glmAlwaysThinking.reasoningEnabled, true);
+    assert.equal(glmAlwaysThinking.reasoningForcedOff, false);
+    assert.equal(glmAlwaysThinking.modelKwargs?.thinking, undefined);
 
     const kimiK3 = await resolveLLMClientOptions("kimi", {
       model: "kimi-k3",

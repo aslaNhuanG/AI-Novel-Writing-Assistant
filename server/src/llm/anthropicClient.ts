@@ -53,7 +53,12 @@ function detectRole(message: BaseMessage): "system" | AnthropicRole {
 
 function normalizeBaseURL(baseURL: string): string {
   const trimmed = baseURL.trim().replace(/\/+$/u, "");
-  return trimmed.endsWith("/v1") ? trimmed : `${trimmed}/v1`;
+  // Gateways may already expose a versioned path (e.g. `/api/paas/v4` or `/v1`);
+  // appending another version segment would point `/messages` at a 404 route.
+  if (/\/v\d+$/u.test(trimmed)) {
+    return trimmed;
+  }
+  return `${trimmed}/v1`;
 }
 
 function convertMessages(messages: BaseMessage[]): { system?: {type:"text";text:string}[]; messages: AnthropicMessage[]; cacheBoundary: import("../platform/llm/cache").PromptCacheBoundary|null } {

@@ -2,7 +2,7 @@ import { toJSONSchema, type ZodType } from "zod";
 import type { LLMProvider } from "@ai-novel/shared/types/llm";
 import type { ModelRouteRequestProtocol } from "@ai-novel/shared/types/novel";
 import { isBuiltInProvider } from "./providers";
-import { isDeepSeekThinkingModeProvider, isGlmThinkingModeProvider } from "./reasoning";
+import { isDeepSeekThinkingModeProvider, isGlmAlwaysThinkingModel, isGlmThinkingModeProvider } from "./reasoning";
 
 export type StructuredExecutionMode = "plain" | "structured";
 export type StructuredOutputStrategy = "json_schema" | "json_object" | "prompt_json";
@@ -182,7 +182,7 @@ export function resolveStructuredOutputProfile(input: {
       input.provider,
       input.baseURL,
       input.model,
-    );
+    ) && !isGlmAlwaysThinkingModel(input.model);
     return buildProfile({
       family: "glm",
       nativeJsonObject: true,

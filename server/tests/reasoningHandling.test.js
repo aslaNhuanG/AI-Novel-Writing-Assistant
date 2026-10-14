@@ -103,6 +103,27 @@ test("minimax provider behavior enables reasoning_split and raw response parsing
   assert.deepEqual(behavior.modelKwargs, { reasoning_split: true });
 });
 
+test("glm always-thinking models omit the thinking field instead of sending a toggle", () => {
+  const behavior = resolveProviderReasoningBehavior({
+    provider: "glm",
+    baseURL: "https://open.bigmodel.cn/api/paas/v4",
+    model: "glm-5.3-flash",
+    reasoningEnabled: false,
+  });
+
+  assert.equal(behavior.reasoningEnabled, true);
+  assert.equal(behavior.reasoningEffort, null);
+  assert.deepEqual(behavior.modelKwargs, {});
+
+  const glm52 = resolveProviderReasoningBehavior({
+    provider: "glm",
+    baseURL: "https://open.bigmodel.cn/api/paas/v4",
+    model: "glm-5.2",
+    reasoningEnabled: false,
+  });
+  assert.deepEqual(glm52.modelKwargs, { thinking: { type: "disabled" } });
+});
+
 test("minimax detection works for provider id, baseURL and model name", () => {
   assert.equal(isMiniMaxCompatibleProvider("minimax", undefined, undefined), true);
   assert.equal(isMiniMaxCompatibleProvider("custom_gateway", "https://api.minimaxi.com/v1", undefined), true);

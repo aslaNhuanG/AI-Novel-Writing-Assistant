@@ -144,6 +144,17 @@ export function isGlmThinkingModeProvider(
   return Boolean(normalizedBaseURL && GLM_HOST_PATTERN.test(normalizedBaseURL));
 }
 
+// GLM 5.3 and later reasoning models always think; sending any `thinking`
+// toggle (including `disabled` or `low`) is rejected with API error 1210.
+// Structured requests must omit the `thinking` field entirely for them.
+export function isGlmAlwaysThinkingModel(model?: string): boolean {
+  const normalizedModel = normalizeOptionalText(model)?.toLowerCase().split("/").at(-1);
+  const version = normalizedModel?.match(/^glm-(\d+)(?:\.(\d+))?/);
+  const major = Number(version?.[1] ?? 0);
+  const minor = Number(version?.[2] ?? 0);
+  return major > 5 || (major === 5 && minor >= 3);
+}
+
 export function resolveProviderReasoningBehavior(input: {
   provider: LLMProvider;
   baseURL: string;
@@ -152,6 +163,15 @@ export function resolveProviderReasoningBehavior(input: {
   reasoningEffort?: ReasoningEffort | null;
 }): ProviderReasoningBehavior {
   if (isGlmThinkingModeProvider(input.provider, input.baseURL, input.model)) {
+    if (isGlmAlwaysThinkingModel(input.model)) {
+      return {
+        reasoningEnabled: true,
+        reasoningEffort: null,
+        modelKwargs: {},
+        includeRawResponse: false,
+        usesAccumulatedStreamDeltas: false,
+      };
+    }
     return {
       reasoningEnabled: input.reasoningEnabled,
       reasoningEffort: null,
