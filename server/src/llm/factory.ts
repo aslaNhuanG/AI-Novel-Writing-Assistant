@@ -9,7 +9,7 @@ import { createAnthropicLLM } from "./anthropicClient";
 import { attachLLMDebugLogging } from "./debugLogging";
 import { attachLLMRequestLimiter } from "./requestLimiter";
 import { attachLLMRequestGuard } from "./requestGuard";
-import { resolveProviderReasoningBehavior } from "./reasoning";
+import { resolveProviderReasoningBehavior, isGlmAlwaysThinkingModel, isGlmThinkingModeProvider } from "./reasoning";
 import {
   resolveStructuredOutputProfile,
   type StructuredExecutionMode,
@@ -314,7 +314,15 @@ export async function resolveLLMClientOptions(
       && structuredProfile.requiresNonThinkingForStructured
       && structuredProfile.supportsReasoningToggle,
   );
+  const isAlwaysThinkingGlm = isGlmAlwaysThinkingModel(model)
+    && isGlmThinkingModeProvider(resolvedProvider, baseURL, model);
   const reasoningEnabled = shouldForceDisableReasoning ? false : requestedReasoningEnabled;
+  // Structured output previously ran with thinking fully disabled. Always-thinking
+  // GLM models cannot disable it, so use the lowest reasoning effort instead to
+  // protect the caller's max_tokens content budget.
+  const reasoningEffortForBehavior = executionMode === "structured" && isAlwaysThinkingGlm
+    ? "low"
+    : requestedReasoningEffort;
   let effectiveMaxTokens = resolvedMaxTokens;
   if (structuredProfile && usesNativeStructured && structuredProfile.omitMaxTokensForNativeStructured) {
     effectiveMaxTokens = undefined;
@@ -338,7 +346,7 @@ export async function resolveLLMClientOptions(
     baseURL,
     model,
     reasoningEnabled,
-    reasoningEffort: requestedReasoningEffort,
+    reasoningEffort: reasoningEffortForBehavior,
   });
   const modelKwargs = {
     ...(reasoningBehavior.modelKwargs ?? {}),

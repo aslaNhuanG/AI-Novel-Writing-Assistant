@@ -164,10 +164,16 @@ export function resolveProviderReasoningBehavior(input: {
 }): ProviderReasoningBehavior {
   if (isGlmThinkingModeProvider(input.provider, input.baseURL, input.model)) {
     if (isGlmAlwaysThinkingModel(input.model)) {
+      // Always-thinking GLM models count reasoning tokens inside max_tokens and
+      // cannot switch thinking off; reasoning_effort is the only way to keep
+      // structured output from starving its own content budget.
+      const reasoningEffort = normalizeReasoningEffort(input.reasoningEffort);
       return {
         reasoningEnabled: true,
-        reasoningEffort: null,
-        modelKwargs: {},
+        reasoningEffort,
+        modelKwargs: {
+          reasoning_effort: reasoningEffort,
+        },
         includeRawResponse: false,
         usesAccumulatedStreamDeltas: false,
       };

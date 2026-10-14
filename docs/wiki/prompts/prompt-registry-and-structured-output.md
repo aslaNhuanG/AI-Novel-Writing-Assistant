@@ -46,7 +46,7 @@
 - 长列表与多层对象类 PromptAsset 必须同时控制字段长度、数组规模和调用级输出预算。仅声明“严格 JSON”不能防止模型把说明文字塞进字段或在闭合括号前持续生成；可以按卷、节拍或片段拆分的结果，应优先分段生成并持久化。
 - 空模型响应不属于 JSON 或 schema 修复问题。普通和流式结构化入口在原生 JSON 模式返回空内容时，都应先用同一模型、同一 Prompt 和同一 Schema 降级到 `prompt_json`；降级后仍为空，才按模型传输 / 输出失败进入有限重试和备用模型。repair 没有原始语义可保留，禁止用空对象补造必填业务内容。
 - 支持开关思考模式的模型执行结构化任务时，应由 provider capability profile 显式关闭思考模式，避免推理预算耗尽后没有最终 JSON。新模型别名接入时必须同步验证其思考开关、结构化 profile 和实际请求参数，不能只把模型名加入下拉列表。DeepSeek 当前官方名 `deepseek-flash` / `deepseek-pro` 与旧名 `deepseek-v4-flash` / `deepseek-v4-pro` 必须按同一套思考开关处理。
-- GLM 4.5 及以上模型在官方兼容端点执行结构化任务时，必须通过 `thinking: { type: "disabled" }` 关闭思考。`enable_thinking: false` 是 Qwen 兼容参数，不能复用于 GLM；聚合或未知代理端点仍按自身已验证的能力处理。
+- GLM 4.5 及以上模型在官方兼容端点执行结构化任务时，必须关闭思考以保护 `max_tokens` 内容预算：GLM 4.5 至 5.2 通过 `thinking: { type: "disabled" }` 关闭；GLM 5.3 及以上是"始终思考"模型，任何 `thinking` 开关（含 `disabled`、`low`）都会被 API 以错误 1210 拒绝，必须完全不发送 `thinking` 字段，并在结构化模式下强制 `reasoning_effort: "low"` 压低思考量。始终思考模型的 `max_tokens` 同时覆盖思考与正文，固定输出预算（如 5000）可能被思考耗尽导致正文为空。`enable_thinking: false` 是 Qwen 兼容参数，不能复用于 GLM；聚合或未知代理端点仍按自身已验证的能力处理。
 - Semantic retry 必须把原始业务失败原因传回重试 prompt，并指明需要整体重排还是局部修正。章节列表、卷级拆章这类结果如果因为标题同构、章节功能重复、摘要空泛或结尾牵引不足被拒绝，重试指令应要求重排整组标题骨架和章节功能分配，而不是只替换被点名的一章。
 - editable slots 只能开放低风险表达层内容，不能覆盖 schema、postValidate、taskType、mode、contextPolicy、工具目录、审批边界或 required context。
 - Prompt Workbench 的可视化编辑器只能把 `PromptAsset.slots` 呈现为可编辑项。`replace`、`token`、`append`、`choice` 和 `toggle` 可以映射成不同控件，但保存仍必须走 slot override；不得把整段 system prompt、contextPolicy 或 schema 暴露为自由编辑文本。
@@ -114,7 +114,7 @@
 
 - 模型返回 JSON 不稳定：先检查 schema、provider JSON 能力和 repair policy，不在业务 service 里补局部解析。
 - 服务端繁忙、超时或连接中断：先检查“模型路由管理”的服务端错误重试次数是否符合当前成本与可用性要求。默认会额外调用 1 次；达到次数后才检查备用模型和厂商状态。不要通过提高 JSON repair 或 semantic retry 次数处理这类错误。
-- 模型请求耗时较长但最终 `content` 为空：先看 LLM 会话日志中的响应长度、模型名和思考模式参数。若原始响应为空，不要根据后续 `{}` repair 错误误判为字段缺失；应检查该模型是否需要关闭思考模式，并确认空响应被归入模型调用失败而不是 JSON repair。
+- 模型请求耗时较长但最终 `content` 为空：先看 LLM 会话日志中的响应长度、模型名和思考模式参数。若原始响应为空，不要根据后续 `{}` repair 错误误判为字段缺失；应检查该模型是否需要关闭思考模式（始终思考模型则检查是否发送了 `reasoning_effort`），并确认空响应被归入模型调用失败而不是 JSON repair。思考型模型 `completion_tokens` 恰好等于调用 `max_tokens` 且正文为空，是思考耗尽输出预算的典型特征。
 - 同一 prompt 频繁进入 JSON repair：检查日志里的原始字段值是否来自上下文或示例中的非 schema 值。如果模型只是复用了 prompt 中出现的别名，应先修 prompt/schema 合同；如果输出语义完整但字段名是常见别名，应在 PromptAsset schema 层归一，而不是让后台任务无限重试。
 - 关键路径 repair 率升高时，还要检查合同是否同时承担了远期规划和当前执行。若大量失败集中在深层数组、跨卷章节或非开篇角色字段，应缩小当前 PromptAsset 的职责和输出窗口；不能靠增加 repair 次数掩盖过大的结构合同。
 - 原始输出很长、尾部出现重复字串或乱码，并伴随“未检测到完整 JSON 值”、控制字符或缺少闭合括号：优先判断为输出预算失控或模型退化。应收紧字段与数组边界、压缩输入上下文、设置与任务规模匹配的输出上限，而不是增加更多 repair 轮次。

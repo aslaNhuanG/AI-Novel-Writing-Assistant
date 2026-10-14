@@ -103,7 +103,7 @@ test("minimax provider behavior enables reasoning_split and raw response parsing
   assert.deepEqual(behavior.modelKwargs, { reasoning_split: true });
 });
 
-test("glm always-thinking models omit the thinking field instead of sending a toggle", () => {
+test("glm always-thinking models omit the thinking field and carry reasoning_effort instead", () => {
   const behavior = resolveProviderReasoningBehavior({
     provider: "glm",
     baseURL: "https://open.bigmodel.cn/api/paas/v4",
@@ -112,8 +112,17 @@ test("glm always-thinking models omit the thinking field instead of sending a to
   });
 
   assert.equal(behavior.reasoningEnabled, true);
-  assert.equal(behavior.reasoningEffort, null);
-  assert.deepEqual(behavior.modelKwargs, {});
+  assert.equal(behavior.reasoningEffort, "high");
+  assert.deepEqual(behavior.modelKwargs, { reasoning_effort: "high" });
+
+  const lowEffort = resolveProviderReasoningBehavior({
+    provider: "glm",
+    baseURL: "https://open.bigmodel.cn/api/paas/v4",
+    model: "glm-5.3-flash",
+    reasoningEnabled: true,
+    reasoningEffort: "low",
+  });
+  assert.deepEqual(lowEffort.modelKwargs, { reasoning_effort: "low" });
 
   const glm52 = resolveProviderReasoningBehavior({
     provider: "glm",

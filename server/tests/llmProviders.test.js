@@ -362,6 +362,14 @@ test("resolveLLMClientOptions applies structured reasoning and token guardrails"
     assert.equal(glmAlwaysThinking.reasoningEnabled, true);
     assert.equal(glmAlwaysThinking.reasoningForcedOff, false);
     assert.equal(glmAlwaysThinking.modelKwargs?.thinking, undefined);
+    assert.equal(glmAlwaysThinking.modelKwargs?.reasoning_effort, "low");
+    assert.equal(glmAlwaysThinking.reasoningEffort, "low");
+
+    const glmAlwaysThinkingPlain = await resolveLLMClientOptions("glm", {
+      model: "glm-5.3-flash",
+    });
+    assert.equal(glmAlwaysThinkingPlain.modelKwargs?.thinking, undefined);
+    assert.equal(glmAlwaysThinkingPlain.modelKwargs?.reasoning_effort, "high");
 
     const kimiK3 = await resolveLLMClientOptions("kimi", {
       model: "kimi-k3",
