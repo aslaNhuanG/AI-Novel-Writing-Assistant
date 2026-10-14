@@ -170,6 +170,8 @@ Web API 只接收命令和返回轻量投影；Worker 负责执行重型生产�
 
 人工保存的规划资产必须登记为 `user_edited`、`protectedUserContent=true`，更新内容 hash 和版本。上游规划变化只让依赖它的下游规划 artifact 变为 `stale`；`chapter_draft` 不因规划重算被清空或标记为可覆盖。`volume_beat_sheet` 和 `volume_chapter_list` 是独立 artifact 类型，用于区分节奏板、拆章列表和章节正文。
 
+开书页提交"补齐创作规划"时，若提交的故事方向与现有规划依据的故事不同，必须把 `story_macro`、`book_contract`、`character_cast`、`volume_strategy`、`volume_beat_sheet`、`volume_chapter_list` 等派生规划资产导入为 `stale`，让运行按依赖顺序重新生成；`world_skeleton` 与 `chapter_draft` 保持原状态，避免覆盖用户资产。方向锚点取 `StoryMacroPlan.storyInput`（规划生成时保存的输入，重新生成后自动更新），无宏观规划时回退到 `Novel.description`；提交成功后同步小说描述，保证起点表单预填与锚点一致。导入为 `stale` 的资产不能标记 `protectedUserContent=true`——"需要重建"与"禁止覆盖"互斥，否则重新规划会被 protected_content 守卫连续拒绝并耗尽重试预算，表现为新方向提交后规划静默沿用或运行卡在人工恢复。
+
 新书确认方向后采用 `auto_to_ready + fast_start` 进入开篇准备。自动导演先完成故事基础、开篇世界切片、核心角色和近期路线；准备完成后停在 `production_experience_required`，等待用户选择阅读书架或完整工作台。任一选择都会写入任务 `productionExperience` 和小说 `creationExperience`，把原任务转为 `full_book_autopilot` 并开始正文。任务 Seed 必须持久化 `startupPreparation`，使服务重启后仍能恢复路线窗口、下一章细化游标与延迟增强策略。后续因重规划再次进入结构化大纲时，应沿用已确认的界面与生产合同，不重复要求选择。
 
 快速启动的目标是连续抵达首章正文。关键路径只允许等待精简故事基础、开篇世界切片、核心角色、3～5 章路线和下一章执行合同；普通系统规划重算应以安全范围策略自动通过。完整世界手册、非开篇角色增强、远期卷骨架和后续完整章节合同不得占用正文关键路径。若步骤会覆盖 `protectedUserContent`，或命中数据完整性、正文保护、模型服务和运行时安全风险，仍必须暂停。

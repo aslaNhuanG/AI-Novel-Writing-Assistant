@@ -19,7 +19,7 @@ import { DIRECTOR_ISSUE_POLICY_PRESETS, directorIssuePolicySchema } from "@ai-no
 import { requireLaunch, modelOptions, bookContractInput, targetVolume, executionWindow } from "./productionInputs";
 import { readBatchOutcome } from "./batchOutcome";
 import {readEditedArtifact, resumeBusiness, cancelBusiness} from "./savedContent";
-import {readExistingAssets} from "./existingAssets";
+import {readExistingAssets, syncOpeningStoryDirection} from "./existingAssets";
 import {isCurrentV2ChapterProductionCompleted as isCurrentChapterProductionCompleted} from "../../services/novel/production/completion";
 import {CHAPTER_ARTIFACT_BOUNDARY_TYPE} from "../../services/novel/runtime/artifactSync";
 import {directorArtifactTypes, resolveConfirmationArtifactTypes} from "./projections/confirmationRoutes";
@@ -140,8 +140,9 @@ export function createDirectorProductionOptions(): DirectorNextServiceOptions {
     requireLaunch(contract);return contract;
   }, prepareOpen: async contract => {
     await assertNovelDirectorVersion(contract.novelId, "v2");
+    const storyDirectionChanged = await syncOpeningStoryDirection(contract);
     const novel = await prisma.novel.findUniqueOrThrow({where: {id: contract.novelId}, select: {id: true, title: true, description: true}});
     return [{type: "novel_seed", scope: contract.scope, status: "confirmed", protectedUserContent: true, contentRef: `novel:${novel.id}`, contentHash: contentHash({novel, launchInput: contract.launchInput})},
-      ...await inferExistingAssets(contract, {read: readExistingAssets, contentHash})];
+      ...await inferExistingAssets(contract, {read: c => readExistingAssets(c, {storyDirectionChanged}), contentHash})];
   }};
 }

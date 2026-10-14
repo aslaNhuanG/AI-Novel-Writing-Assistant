@@ -5,9 +5,42 @@ import {isDecompositionComplete} from "../../services/novel/storyMacro/storyMacr
 import {StoryMacroPlanService} from "../../services/novel/storyMacro/StoryMacroPlanService";
 import {findTargetVolume} from "./productionInputs";
 
+/** Planning artifacts derived from the story direction; a changed direction makes them stale. */
+const PLANNING_ASSET_TYPES = new Set([
+  "story_macro",
+  "book_contract",
+  "character_cast",
+  "volume_strategy",
+  "volume_beat_sheet",
+  "volume_chapter_list",
+  "chapter_task_sheet",
+  "chapter_execution_contract",
+]);
+
+/**
+ * Decide whether the submitted story direction differs from the story the saved
+ * planning was built on, and keep the novel description aligned with the latest
+ * direction so the start form prefills it. The macro plan's stored story input is
+ * the primary anchor because it is what the current plan was generated from; the
+ * description is the fallback for books planned outside the director.
+ */
+export async function syncOpeningStoryDirection(contract: RunContract): Promise<boolean> {
+  const story = contract.launchInput?.storyInput?.trim();
+  if (!story) return false;
+  const [novel, macro] = await Promise.all([
+    prisma.novel.findUniqueOrThrow({where: {id: contract.novelId}, select: {description: true}}),
+    new StoryMacroPlanService().getPlan(contract.novelId),
+  ]);
+  const source = macro?.storyInput?.trim() || (novel.description ?? "").trim();
+  if (!source || source === story) return false;
+  await prisma.novel.update({where: {id: contract.novelId}, data: {description: story}});
+  return true;
+}
+
 /** Read-only takeover inventory; getVolumes is intentionally avoided because it can persist compatibility state. */
-export async function readExistingAssets(contract: RunContract): Promise<ExistingNovelAsset[]> {
+export async function readExistingAssets(contract: RunContract, options: {storyDirectionChanged?: boolean} = {}): Promise<ExistingNovelAsset[]> {
   const novelId = contract.novelId;
+  const storyDirectionChanged = options.storyDirectionChanged ?? false;
   const [novel, macro, book, characters, version, chapters] = await Promise.all([
     prisma.novel.findUniqueOrThrow({where: {id: novelId}, select: {worldId: true}}),
     new StoryMacroPlanService().getPlan(novelId),
@@ -17,7 +50,7 @@ export async function readExistingAssets(contract: RunContract): Promise<Existin
     prisma.chapter.findMany({where: {novelId}, orderBy: {order: "asc"}}),
   ]);
   const assets: ExistingNovelAsset[] = [];
-  const add = (type: string, content: unknown, usable = true, contentRef = `${type}:${novelId}`) => assets.push({type, contentRef, content, usable});
+  const add = (type: string, content: unknown, usable = true, contentRef = `${type}:${novelId}`) => assets.push({type, contentRef, content, usable: storyDirectionChanged && PLANNING_ASSET_TYPES.has(type) ? false : usable});
   if (macro?.decomposition) add("story_macro", macro, isDecompositionComplete(macro.decomposition));
   if (book) add("book_contract", book);
   if (novel.worldId) add("world_skeleton", {worldId: novel.worldId});

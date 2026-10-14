@@ -19,7 +19,9 @@ export async function inferExistingAssets(contract: RunContract, deps: {
     const key = `${asset.type}:${asset.scope ?? contract.scope}`;
     if (!asset.type || !asset.contentRef || seen.has(key)) throw new Error("小说资产快照不完整或重复。");
     seen.add(key);
+    // Stale imports are the regeneration target of this run: they must not be
+    // protected, or the guard blocks every step that would rebuild them.
     return {type: asset.type, scope: asset.scope ?? contract.scope, status: asset.usable ? "confirmed" : "stale",
-      protectedUserContent: true, contentRef: asset.contentRef, contentHash: deps.contentHash(asset.content)};
+      protectedUserContent: asset.usable, contentRef: asset.contentRef, contentHash: deps.contentHash(asset.content)};
   });
 }
