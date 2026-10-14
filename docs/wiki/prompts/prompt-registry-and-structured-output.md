@@ -121,6 +121,7 @@
 - 短创意候选经过 repair 后格式正确但突然偏离用户题材或推进方式：检查 repair 是否只拿到了损坏输出和 JSON Schema。若原始任务依赖强业务上下文，应禁用该 PromptAsset 的通用内容修复，改为用原始上下文、受控温度和同一输出合同重新生成一次。
 - 合法 JSON 总是在同一 `schemaPath` 失败：优先检查 Prompt 示例、枚举说明和 schema 是否互相矛盾；如果错误值直接来自上下文，应修复上下文合同污染。
 - 原始 JSON 无法解析，repair 后又集中缺少必填字段：检查 repair 请求是否携带完整目标 schema。只把解析错误和损坏文本交给模型，会让修复退化成猜测返回结构。
+- 结构化调用链使用放宽长度约束的 runtime schema（`relaxGeneratedContentSchema` 剥掉字符串 min/max）以避免模型计数类修复循环；任何下游对同一输出用严格 schema 二次 `.parse()` 都必须保证两条校验路径结果一致：要么在 schema 预处理里对退化值做确定性修剪、截断或丢弃（如章节资产抽取的出场记录），要么让下游按既有逐条校验逻辑优雅跳过。否则内部校验通过、外部复检崩溃，且 ZodError 的 message 是原始 issues JSON，会被章节管线原样写入暂停原因，用户在恢复面板看到无法理解的机器报错。修复模型只能修复它被告知的错误；被放宽的约束不会进入修复提示，也不会被修复。
 - `expected string, received number` 如果集中出现在状态抽取字段，通常不是模型理解偏差，而是 schema 将“可读状态文本”和“可计算数值”混在同一个字段里。处理顺序应是：明确 prompt 输出合同，给结构化示例，在 schema preprocess 中保留语义并转成字符串；不要要求 LLM 为每一个数值字段单独 repair。
 - Prompt Catalog 缺上下文预览：补 `contextRequirements`，不要让预览临时查数据库。
 - Prompt Workbench 预览提示缺少 required context：先检查该 group 是否注册在默认 Context Broker，以及 Workbench 样本是否通过 `extraContextBlocks` 提供了手动预览所需的示例块；不要通过放宽 required context 或让用户手动关闭缺失项来掩盖契约缺口。

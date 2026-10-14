@@ -272,10 +272,26 @@ function normalizeSyncPlan(value: unknown): unknown {
   };
 }
 
+// 结构化调用链会放宽字符串长度校验以避免无效修复循环，而下游会用严格 schema 复核。
+// 出场记录里无法通过长度合同的条目，本来就会在回填时因正文验证失败被逐条跳过；
+// 这里先做确定性修剪与丢弃，避免整章资产同步因少数空记录被 ZodError 打断。
+function normalizeCharacterAppearanceEntries(value: unknown): unknown {
+  if (!Array.isArray(value)) return value;
+  return value.flatMap(item => {
+    if (!isRecord(item)) return [];
+    const characterName = typeof item.characterName === "string" ? item.characterName.trim() : "";
+    const summary = typeof item.summary === "string" ? item.summary.trim().slice(0, 160) : "";
+    const evidence = typeof item.evidence === "string" ? item.evidence.trim().slice(0, 350) : "";
+    if (!characterName || !summary || !evidence) return [];
+    return [{...item, characterName, summary, evidence}];
+  });
+}
+
 function normalizeArtifactDeltaOutput(value: unknown): unknown {
   if (!isRecord(value)) return value;
   return {
     ...value,
+    characterAppearances: normalizeCharacterAppearanceEntries(value.characterAppearances),
     syncPlan: isRecord(value.syncPlan)
       ? value.syncPlan
       : { stateSnapshot: "write", characterResources: "write", payoffLedger: "delta", characterDynamics: "write", reason: "根据章节正文完成默认同步。" },
