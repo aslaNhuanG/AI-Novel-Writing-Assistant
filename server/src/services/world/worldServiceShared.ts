@@ -9,7 +9,7 @@ import type {
   WorldReferenceMode,
 } from "@ai-novel/shared/types/worldWizard";
 import { WORLD_LAYER_ORDER } from "./worldTemplates";
-import { normalizeWorldStructuredData } from "./worldStructure";
+import { mergeWorldStructureSectionIncremental } from "./worldStructure";
 
 export const LAYER_STATUSES = ["pending", "generated", "confirmed", "stale"] as const;
 export type LayerStatus = (typeof LAYER_STATUSES)[number];
@@ -455,40 +455,7 @@ export function mergeWorldStructureSection(
   section: WorldStructureSectionKey,
   raw: unknown,
 ): WorldStructuredData {
-  switch (section) {
-    case "profile":
-      return normalizeWorldStructuredData({
-        ...current,
-        profile: raw,
-      }, current);
-    case "rules":
-      return normalizeWorldStructuredData({
-        ...current,
-        rules: raw,
-      }, current);
-    case "factions": {
-      const record = raw && typeof raw === "object" && !Array.isArray(raw)
-        ? (raw as Record<string, unknown>)
-        : {};
-      return normalizeWorldStructuredData({
-        ...current,
-        factions: record.factions ?? current.factions,
-        forces: record.forces ?? current.forces,
-      }, current);
-    }
-    case "locations":
-      return normalizeWorldStructuredData({
-        ...current,
-        locations: raw,
-      }, current);
-    case "relations":
-      return normalizeWorldStructuredData({
-        ...current,
-        relations: raw,
-      }, current);
-    default:
-      return current;
-  }
+  return mergeWorldStructureSectionIncremental(current, section, raw);
 }
 
 export function normalizeAxiomList(raw: unknown): string[] {

@@ -647,6 +647,170 @@ export function normalizeWorldStructuredData(
   };
 }
 
+// ── 增量合并（「补齐选中区块」）──────────────────────────────────────────────
+// 「补齐选中区块」按 section 增量合并：保留当前结构中已有条目（含用户手动删改），
+// 只追加 AI 新产出、且当前不存在的条目，不再整块覆盖。这属于对已结构化 AI 输出的
+// 确定性后处理。profile 为标量对象，仍沿用整体覆盖语义。
+
+function mergeIdentityKey(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_\-:/\\|（）()【】\[\]·、，,。.!?？：:]/g, "");
+}
+
+function reserveUniqueId(baseId: string, used: Set<string>): string {
+  const trimmed = baseId.trim() || "item";
+  if (!used.has(trimmed)) {
+    used.add(trimmed);
+    return trimmed;
+  }
+  let index = 2;
+  while (used.has(`${trimmed}-${index}`)) {
+    index += 1;
+  }
+  const next = `${trimmed}-${index}`;
+  used.add(next);
+  return next;
+}
+
+function mergeEntityList<T extends { id: string; name: string }>(
+  current: T[],
+  incoming: ReadonlyArray<T | null>,
+): T[] {
+  const usedIds = new Set(current.map((item) => item.id));
+  const existingKeys = new Set(current.map((item) => mergeIdentityKey(item.name)));
+  const merged = [...current];
+  for (const item of incoming) {
+    if (!item) {
+      continue;
+    }
+    const key = mergeIdentityKey(item.name);
+    if (!key || existingKeys.has(key)) {
+      continue;
+    }
+    existingKeys.add(key);
+    merged.push({ ...item, id: reserveUniqueId(item.id, usedIds) });
+  }
+  return merged;
+}
+
+function mergeStringList(current: string[], incoming: string[]): string[] {
+  const seen = new Set(current.map((item) => item.trim()).filter(Boolean));
+  const merged = [...current];
+  for (const item of incoming) {
+    const value = item.trim();
+    if (!value || seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    merged.push(value);
+  }
+  return merged;
+}
+
+function mergeRelationList<T extends { id: string }>(
+  current: T[],
+  incoming: ReadonlyArray<T | null>,
+  keyOf: (item: T) => string,
+): T[] {
+  const usedIds = new Set(current.map((item) => item.id));
+  const existingKeys = new Set(current.map((item) => keyOf(item)));
+  const merged = [...current];
+  for (const item of incoming) {
+    if (!item) {
+      continue;
+    }
+    const key = keyOf(item);
+    if (!key || existingKeys.has(key)) {
+      continue;
+    }
+    existingKeys.add(key);
+    merged.push({ ...item, id: reserveUniqueId(item.id, usedIds) });
+  }
+  return merged;
+}
+
+export function mergeWorldStructureSectionIncremental(
+  current: WorldStructuredData,
+  section: WorldStructureSectionKey,
+  raw: unknown,
+): WorldStructuredData {
+  switch (section) {
+    case "rules": {
+      const incoming = normalizeRules(raw, createEmptyWorldRules());
+      const mergedRules: WorldRules = {
+        summary: current.rules.summary || incoming.summary,
+        axioms: mergeEntityList(current.rules.axioms, incoming.axioms),
+        taboo: mergeStringList(current.rules.taboo, incoming.taboo),
+        sharedConsequences: mergeStringList(current.rules.sharedConsequences, incoming.sharedConsequences),
+      };
+      return normalizeWorldStructuredData({ ...current, rules: mergedRules }, current);
+    }
+    case "factions": {
+      const record = normalizeRecord(raw);
+      const incomingFactions = Array.isArray(record.factions)
+        ? record.factions
+            .map((item, index) => normalizeFaction(item, index))
+            .filter((item): item is WorldFaction => Boolean(item))
+        : [];
+      const incomingForces = Array.isArray(record.forces)
+        ? record.forces
+            .map((item, index) => normalizeForce(item, index))
+            .filter((item): item is WorldForce => Boolean(item))
+        : [];
+      return normalizeWorldStructuredData({
+        ...current,
+        factions: mergeEntityList(current.factions, incomingFactions),
+        forces: mergeEntityList(current.forces, incomingForces),
+      }, current);
+    }
+    case "locations": {
+      const incomingLocations = Array.isArray(raw)
+        ? raw
+            .map((item, index) => normalizeLocation(item, index))
+            .filter((item): item is WorldLocation => Boolean(item))
+        : [];
+      return normalizeWorldStructuredData({
+        ...current,
+        locations: mergeEntityList(current.locations, incomingLocations),
+      }, current);
+    }
+    case "relations": {
+      const record = normalizeRecord(raw);
+      const incomingForceRelations = Array.isArray(record.forceRelations)
+        ? record.forceRelations
+            .map((item, index) => normalizeForceRelation(item, index))
+            .filter((item): item is WorldForceRelation => Boolean(item))
+        : [];
+      const incomingLocationControls = Array.isArray(record.locationControls)
+        ? record.locationControls
+            .map((item, index) => normalizeLocationControl(item, index))
+            .filter((item): item is WorldLocationControlRelation => Boolean(item))
+        : [];
+      return normalizeWorldStructuredData({
+        ...current,
+        relations: {
+          ...current.relations,
+          forceRelations: mergeRelationList(
+            current.relations.forceRelations,
+            incomingForceRelations,
+            (item) => `${item.sourceForceId}->${item.targetForceId}`,
+          ),
+          locationControls: mergeRelationList(
+            current.relations.locationControls,
+            incomingLocationControls,
+            (item) => `${item.forceId}@${item.locationId}`,
+          ),
+        },
+      }, current);
+    }
+    case "profile":
+    default:
+      return normalizeWorldStructuredData({ ...current, profile: raw }, current);
+  }
+}
+
 function seedFaction(name: string, description = ""): WorldFaction {
   return {
     id: makeId("faction", 0, name),
