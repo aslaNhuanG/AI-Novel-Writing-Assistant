@@ -122,23 +122,21 @@ export default function WorldHandbookEditor(props: {
 
   return (
     <section className="space-y-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-semibold tracking-tight">整理世界手册</h2>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
-              先确认世界给读者的印象与核心矛盾，再按需整理规则、势力、地点和冲突张力。
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" variant="ghost" className="rounded-full" onClick={onOpenOverview}>
-              <BookOpen className="mr-2 h-4 w-4" aria-hidden="true" />
-              查看手册
-            </Button>
-            <Button type="button" size="sm" className="rounded-full" onClick={saveDraft} disabled={savePending}>
-              <Save className="mr-2 h-4 w-4" aria-hidden="true" />
-              {savePending ? "保存中..." : "保存手册"}
-            </Button>
-          </div>
+        <div>
+          <h2 className="text-xl font-semibold tracking-tight">整理世界手册</h2>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
+            先确认世界给读者的印象与核心矛盾，再按需整理规则、势力、地点和冲突张力。
+          </p>
+        </div>
+        <div className="sticky top-0 z-20 ml-auto flex w-fit flex-wrap items-center gap-2 rounded-2xl bg-background/90 px-3 py-2 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/75">
+          <Button type="button" size="sm" variant="ghost" className="rounded-full" onClick={onOpenOverview}>
+            <BookOpen className="mr-2 h-4 w-4" aria-hidden="true" />
+            查看手册
+          </Button>
+          <Button type="button" size="sm" className="rounded-full" onClick={saveDraft} disabled={savePending}>
+            <Save className="mr-2 h-4 w-4" aria-hidden="true" />
+            {savePending ? "保存中..." : "保存手册"}
+          </Button>
         </div>
         <div className="rounded-3xl bg-muted/20 p-5 sm:p-6">
           <div className="flex flex-wrap gap-2">
