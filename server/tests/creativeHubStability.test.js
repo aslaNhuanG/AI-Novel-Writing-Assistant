@@ -57,7 +57,7 @@ function validateRequest(payload) {
 }
 let capturedRequests = [];
 const clientApi = load('client/src/api/creativeHub.ts', {
-  '@/lib/constants': { API_BASE_URL: '/api' },
+  '@/lib/constants': { API_BASE_URL: '/api', CREATIVE_HUB_CREATE_TIMEOUT_MS: 30000 },
   './client': { apiClient: {} },
 }, {
   fetch: async (_, request) => {

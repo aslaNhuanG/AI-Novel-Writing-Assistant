@@ -133,6 +133,89 @@ test("unbound candidate first finalization fills absent launch fields without ch
   assert.equal(workflow.bootstrapCalls.length, 1);
 });
 
+test("unbound task may replace the creative carryover contract while it is still being finalized", async () => {
+  let persisted = {
+    runMode: "auto_to_execution",
+    creativeCarryoverContract: {
+      schemaVersion: 1, mode: "adaptation", bookAnalysisId: "analysis-1",
+      generatedAt: "2026-10-17T01:00:00.000Z", adopted: true,
+    },
+  };
+  const bootstrapCalls = [];
+  const workflow = {
+    async getTaskById() {
+      return {
+        id: "task-carryover",
+        lane: "auto_director",
+        novelId: null,
+        seedPayloadJson: JSON.stringify(persisted),
+      };
+    },
+    async bootstrapTask(input) {
+      bootstrapCalls.push(input);
+      persisted = input.seedPayload;
+      return input;
+    },
+  };
+  const writer = new DirectorTaskStateWriter(workflow);
+
+  const regenerated = {
+    schemaVersion: 1, mode: "adaptation", bookAnalysisId: "analysis-1",
+    generatedAt: "2026-10-17T02:00:00.000Z", adopted: true,
+  };
+  await writer.initializeTask({
+    workflowTaskId: "task-carryover",
+    lane: "auto_director",
+    title: "采用新承接方案",
+    directorState: {
+      launch: { creativeCarryoverContract: regenerated, legacyContext: {} },
+      run: {},
+    },
+  });
+
+  assert.equal(bootstrapCalls.length, 1);
+  assert.deepEqual(persisted.creativeCarryoverContract, regenerated);
+  assert.equal(persisted.runMode, "auto_to_execution");
+});
+
+test("bound task keeps the creative carryover contract immutable", async () => {
+  const writes = [];
+  const writer = new DirectorTaskStateWriter({
+    async getTaskById() {
+      return {
+        id: "task-carryover-bound",
+        lane: "auto_director",
+        novelId: "novel-bound",
+        seedPayloadJson: JSON.stringify({
+          runMode: "auto_to_execution",
+          creativeCarryoverContract: {
+            schemaVersion: 1, mode: "adaptation", bookAnalysisId: "analysis-1",
+            generatedAt: "2026-10-17T01:00:00.000Z", adopted: true,
+          },
+        }),
+      };
+    },
+    async bootstrapTask(input) { writes.push(input); return input; },
+  });
+
+  await assert.rejects(writer.initializeTask({
+    workflowTaskId: "task-carryover-bound",
+    novelId: "novel-bound",
+    lane: "auto_director",
+    directorState: {
+      launch: {
+        creativeCarryoverContract: {
+          schemaVersion: 1, mode: "adaptation", bookAnalysisId: "analysis-1",
+          generatedAt: "2026-10-17T02:00:00.000Z", adopted: true,
+        },
+        legacyContext: {},
+      },
+      run: {},
+    },
+  }), /launch contract/i);
+  assert.deepEqual(writes, []);
+});
+
 test("candidate confirmation cannot replace a launch contract after the task is attached to a novel", async () => {
   const workflow = {
     bootstrapCalls: [],

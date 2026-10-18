@@ -14,6 +14,7 @@ import {
   resolveCreativeHubInterrupt,
   updateCreativeHubThread,
 } from "@/api/creativeHub";
+import { isCanceledRequest } from "@/api/client";
 import { getNovelList } from "@/api/novel";
 import { queryKeys } from "@/api/queryKeys";
 import {
@@ -41,6 +42,8 @@ import { resolveCreativeHubWorkspacePresentation } from "./presentation/creative
 const RUNTIME_DETAILS_COLLAPSED_STORAGE_KEY = "creative-hub.runtime-details-collapsed";
 const DEFAULT_THREAD_TITLE = "\u65b0\u5bf9\u8bdd";
 const pendingAutoCreateThreadKeys = new Set<string>();
+/** 自动创建失败后的最大重试次数，用尽后交给用户手动重试，避免无休止重试。 */
+const AUTO_CREATE_MAX_ATTEMPTS = 2;
 
 export default function CreativeHubPage() {
   const llm = useLLMStore();
@@ -57,6 +60,8 @@ export default function CreativeHubPage() {
   const createOriginLocationKeyRef = useRef(searchParams.toString());
   const activeInterruptIdRef = useRef<string | null>(null);
   const createThreadInFlightRef = useRef(false);
+  const createAbortControllerRef = useRef<AbortController | null>(null);
+  const autoCreateAttemptsRef = useRef(new Map<string, number>());
   const skipAutoCreateKeyRef = useRef<string | null>(null);
   const threadActionInFlightRef = useRef(false);
   const bindingInFlightRef = useRef(false);
@@ -116,8 +121,15 @@ export default function CreativeHubPage() {
   }, [activeThreadId]);
 
   const createThreadMutation = useMutation({
-    mutationFn: createCreativeHubThread,
-    onSuccess: async (response, variables) => {
+    mutationFn: (input?: { title?: string; resourceBindings?: CreativeHubResourceBinding }) => {
+      createAbortControllerRef.current?.abort();
+      const controller = new AbortController();
+      createAbortControllerRef.current = controller;
+      return createCreativeHubThread(input, { signal: controller.signal });
+    },
+    // 浏览器误报离线时也要把请求发出去，让失败快速暴露，而不是把按钮永久卡在“正在创建”。
+    networkMode: "always",
+    onSuccess: (response, variables) => {
       const threadId = response.data?.id;
       queryClient.setQueryData<ApiResponse<CreativeHubThread[]>>(queryKeys.creativeHub.threads, (previous) => {
         const createdThread = response.data;
@@ -131,12 +143,11 @@ export default function CreativeHubPage() {
         return previous
           ? { ...previous, data: [createdThread, ...existingThreads] }
           : {
-            success: true,
-            data: [createdThread],
-            message: "Creative Hub thread list updated.",
-          };
+              success: true,
+              data: [createdThread],
+              message: "Creative Hub thread list updated.",
+            };
       });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.creativeHub.threads });
       if (
         threadId
         && activeThreadIdRef.current === createOriginThreadIdRef.current
@@ -149,17 +160,22 @@ export default function CreativeHubPage() {
           return next;
         }, { replace: true });
       }
+      // 列表刷新不阻塞 mutation 落地，避免刷新抖动把按钮卡在“正在创建”。
+      void queryClient.invalidateQueries({ queryKey: queryKeys.creativeHub.threads });
     },
     onError: (error) => {
+      if (isCanceledRequest(error)) {
+        return;
+      }
       toast.error(error instanceof Error ? error.message : "创作线程创建失败，请重试。");
     },
   });
 
   const requestThreadCreation = useCallback(async (
     input: Parameters<typeof createCreativeHubThread>[0],
-  ) => {
+  ): Promise<boolean> => {
     if (createThreadInFlightRef.current) {
-      return;
+      return false;
     }
     createThreadInFlightRef.current = true;
     skipAutoCreateKeyRef.current = null;
@@ -168,27 +184,43 @@ export default function CreativeHubPage() {
     createOriginLocationKeyRef.current = currentLocationKeyRef.current;
     try {
       await createThreadMutation.mutateAsync(input);
+      return true;
     } catch {
       // 失败提示由 mutation 的 onError 统一处理。
+      return false;
     } finally {
       createThreadInFlightRef.current = false;
     }
   }, [createThreadMutation]);
 
+  const cancelThreadCreation = useCallback(() => {
+    createAbortControllerRef.current?.abort();
+  }, []);
+
   const autoCreateThread = useCallback(() => {
     if (!threadsQuery.isSuccess) {
       return;
     }
-    if (createThreadMutation.isPending || createThreadMutation.isError) {
+    if (createThreadMutation.isPending) {
       return;
     }
     if (pendingAutoCreateThreadKeys.has(autoCreateThreadKey)) {
       return;
     }
+    // 失败后允许有限重试；次数用尽后保留手动重试入口，不再自动触发。
+    const attempts = autoCreateAttemptsRef.current.get(autoCreateThreadKey) ?? 0;
+    if (attempts >= AUTO_CREATE_MAX_ATTEMPTS) {
+      return;
+    }
     pendingAutoCreateThreadKeys.add(autoCreateThreadKey);
+    autoCreateAttemptsRef.current.set(autoCreateThreadKey, attempts + 1);
     void requestThreadCreation({
       title: DEFAULT_THREAD_TITLE,
       resourceBindings: shouldCreateBoundThread ? initialBindings : {},
+    }).then((succeeded) => {
+      if (succeeded) {
+        autoCreateAttemptsRef.current.delete(autoCreateThreadKey);
+      }
     }).finally(() => {
       pendingAutoCreateThreadKeys.delete(autoCreateThreadKey);
     });
@@ -574,8 +606,15 @@ export default function CreativeHubPage() {
           <Button
             type="button"
             variant="outline"
-            disabled={threadNavigationDisabled}
-            onClick={() => void requestThreadCreation({ title: DEFAULT_THREAD_TITLE, resourceBindings: {} })}
+            disabled={threadNavigationDisabled && !createThreadMutation.isPending}
+            onClick={() => {
+              if (createThreadMutation.isPending) {
+                cancelThreadCreation();
+                return;
+              }
+              void requestThreadCreation({ title: DEFAULT_THREAD_TITLE, resourceBindings: {} });
+            }}
+            title={createThreadMutation.isPending ? "取消创建" : undefined}
           >
             {createThreadMutation.isPending ? "正在创建..." : "新建创作线程"}
           </Button>
@@ -692,6 +731,7 @@ export default function CreativeHubPage() {
             actionDisabled={threadNavigationDisabled}
             pendingThreadId={threadActionPendingId}
             onRetry={() => void threadsQuery.refetch()}
+            onCancelCreate={cancelThreadCreation}
             onSelect={(threadId) => {
               const selectedThread = threads.find((thread) => thread.id === threadId);
               setSearchParams((prev) => {

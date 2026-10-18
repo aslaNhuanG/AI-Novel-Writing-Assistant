@@ -8,6 +8,11 @@ export interface ApiHttpError extends Error {
   details?: unknown;
 }
 
+/** 调用方主动取消的请求不应弹错误提示，交由调用方自行收尾。 */
+export function isCanceledRequest(error: unknown): boolean {
+  return axios.isCancel(error);
+}
+
 declare module "axios" {
   interface AxiosRequestConfig {
     silentErrorStatuses?: number[];
@@ -27,6 +32,9 @@ const AUTO_DISMISS_SERVER_ERROR_TOAST = {
 apiClient.interceptors.response.use(
   (response) => response,
   (error: AxiosError<ApiResponse<unknown>>) => {
+    if (isCanceledRequest(error)) {
+      return Promise.reject(error);
+    }
     const status = error.response?.status;
     const backendError = error.response?.data?.error;
     const backendMessage = error.response?.data?.message;

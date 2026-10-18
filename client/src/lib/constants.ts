@@ -125,3 +125,6 @@ export const API_TIMEOUT_MS = parseApiTimeoutMs(runtimeConfig.apiTimeoutMs ?? vi
 
 /** Stays 15 seconds above the 10 minute world-generation setting so the page does not abort first. */
 export const WORLD_GENERATION_CLIENT_TIMEOUT_MS = 10 * 60 * 1000 + 15_000;
+
+/** 创作线程创建是轻量写入：用短超时兜底，避免网络异常时按钮长时间卡在“正在创建”。 */
+export const CREATIVE_HUB_CREATE_TIMEOUT_MS = 30_000;

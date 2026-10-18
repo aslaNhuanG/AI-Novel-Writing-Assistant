@@ -58,7 +58,7 @@ function stableJson(value: unknown): string {
 function findLaunchContractConflict(
   current: DirectorTaskState,
   incoming: DirectorTaskState,
-  allowMissingFields: boolean,
+  taskUnbound: boolean,
 ): string | null {
   const currentLaunch = current.launch as unknown as Record<string, unknown>;
   // Candidate-generation tasks can predate the final novel input. A missing
@@ -66,7 +66,11 @@ function findLaunchContractConflict(
   // Unknown legacy payload is compatibility context, not a typed contract.
   for (const [key, value] of Object.entries(incoming.launch)) {
     if (key === "legacyContext") continue;
-    if (currentLaunch[key] === undefined && allowMissingFields) continue;
+    if (currentLaunch[key] === undefined && taskUnbound) continue;
+    // The creative carryover contract is still being finalized while no novel is
+    // bound: the create page supports regenerating and re-adopting it. It becomes
+    // immutable once the confirm flow freezes it at novel creation.
+    if (key === "creativeCarryoverContract" && taskUnbound) continue;
     if (value !== undefined && stableJson(currentLaunch[key]) !== stableJson(value)) {
       return key;
     }

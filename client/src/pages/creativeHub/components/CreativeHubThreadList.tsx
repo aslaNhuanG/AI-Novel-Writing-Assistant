@@ -18,6 +18,7 @@ interface CreativeHubThreadListProps {
   onRetry?: () => void;
   onSelect: (threadId: string) => void;
   onCreate: () => void;
+  onCancelCreate?: () => void;
   onArchive: (threadId: string, archived: boolean) => void;
   onDelete: (threadId: string) => void;
 }
@@ -50,9 +51,11 @@ export default function CreativeHubThreadList({
   onRetry,
   onSelect,
   onCreate,
+  onCancelCreate,
   onArchive,
   onDelete,
 }: CreativeHubThreadListProps) {
+  const createCancelable = actionPending && Boolean(onCancelCreate);
   return (
     <Card
       className="flex h-full min-h-0 flex-col rounded-lg shadow-none"
@@ -65,7 +68,18 @@ export default function CreativeHubThreadList({
         </div>
       </CardHeader>
       <CardContent className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
-        <Button className="h-9 w-full" onClick={onCreate} disabled={actionPending || actionDisabled}>
+        <Button
+          className="h-9 w-full"
+          onClick={() => {
+            if (createCancelable && onCancelCreate) {
+              onCancelCreate();
+              return;
+            }
+            onCreate();
+          }}
+          disabled={actionDisabled && !actionPending}
+          title={createCancelable ? "取消创建" : undefined}
+        >
           {actionPending ? "正在创建..." : "新建线程"}
         </Button>
         {loading ? (

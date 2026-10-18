@@ -6,7 +6,7 @@ import type {
   CreativeHubThreadHistoryItem,
   CreativeHubThreadState,
 } from "@ai-novel/shared/types/creativeHub";
-import { API_BASE_URL } from "@/lib/constants";
+import { API_BASE_URL, CREATIVE_HUB_CREATE_TIMEOUT_MS } from "@/lib/constants";
 import { apiClient, type ApiHttpError } from "./client";
 
 function ensureThreadId(threadId: string): string {
@@ -22,11 +22,17 @@ export async function listCreativeHubThreads(): Promise<ApiResponse<CreativeHubT
   return data;
 }
 
-export async function createCreativeHubThread(payload?: {
-  title?: string;
-  resourceBindings?: CreativeHubResourceBinding;
-}): Promise<ApiResponse<CreativeHubThread>> {
-  const { data } = await apiClient.post<ApiResponse<CreativeHubThread>>("/creative-hub/threads", payload ?? {});
+export async function createCreativeHubThread(
+  payload?: {
+    title?: string;
+    resourceBindings?: CreativeHubResourceBinding;
+  },
+  options?: { signal?: AbortSignal },
+): Promise<ApiResponse<CreativeHubThread>> {
+  const { data } = await apiClient.post<ApiResponse<CreativeHubThread>>("/creative-hub/threads", payload ?? {}, {
+    timeout: CREATIVE_HUB_CREATE_TIMEOUT_MS,
+    signal: options?.signal,
+  });
   return data;
 }
 
