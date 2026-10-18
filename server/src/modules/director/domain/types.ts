@@ -32,6 +32,8 @@ export interface StepDefinition {
   needs: readonly string[];
   gateable: boolean;
   overwrites: readonly ArtifactType[];
+  /** Ranged production adapters may only append missing data for these saved assets. */
+  preservesInChapterRange?: readonly ArtifactType[];
 }
 
 export interface PlanDefinition {
@@ -47,7 +49,8 @@ export type IssuePolicyMode = "completion_first" | "quality_first";
 export interface IssuePolicySnapshot {
   mode: IssuePolicyMode;
   version: string;
-  pipelinePolicy?: {maxAutomaticRetries: number; issueActions: Readonly<Record<string, string>>};
+  pipelinePolicy?: {maxAutomaticRetries: number; issueActions: Readonly<Record<string, string>>;
+    chapterReviewRetryPolicy?: {maxRetries: number; onExhausted: "continue_with_warning" | "pause_for_manual"}};
 }
 
 export interface ModelConfigSnapshot {
@@ -138,13 +141,18 @@ export interface StopSignal {
   kind: StopSignalKind;
   reason: string;
   action?: StopSignalAction;
-  source?: "quality" | "runtime";
+  source?: "quality" | "runtime" | "retry_policy";
 }
 
 export interface FactsSnapshot {
   artifacts: readonly ArtifactRef[];
   debts: readonly QualityDebtRef[];
   stopSignal: StopSignal | null;
+}
+
+export interface ActionRejection {
+  code: string;
+  stepId?: string;
 }
 
 export type Action =

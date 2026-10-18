@@ -27,6 +27,7 @@ import {directorArtifactTypes, resolveConfirmationArtifactTypes} from "./project
 import {readProductionProjection} from "./projections/productionProgress";
 import {assertNovelDirectorVersion, assertV2RunExecution} from "../../modules/novel/director-routing";
 import {AppError} from "../../middleware/errorHandler";
+import {directorIssuePolicyService} from "../../services/novel/director/issues/DirectorIssuePolicyService";
 
 /** Composition only: business generation remains owned by existing novel services. Not enabled by importing this module. */
 export function createDirectorProductionOptions(): DirectorNextServiceOptions {
@@ -142,6 +143,8 @@ export function createDirectorProductionOptions(): DirectorNextServiceOptions {
   }, prepareOpen: async contract => {
     await assertNovelDirectorVersion(contract.novelId, "v2");
     const storyDirectionChanged = await syncOpeningStoryDirection(contract);
+    const configured = (await directorIssuePolicyService.getNovelPolicy(contract.novelId)).effectivePolicy.chapterReviewRetryPolicy;
+    if (configured && contract.issuePolicy.pipelinePolicy) contract.issuePolicy.pipelinePolicy.chapterReviewRetryPolicy = {...configured};
     const novel = await prisma.novel.findUniqueOrThrow({where: {id: contract.novelId}, select: {id: true, title: true, description: true}});
     return [{type: "novel_seed", scope: contract.scope, status: "confirmed", protectedUserContent: true, contentRef: `novel:${novel.id}`, contentHash: contentHash({novel, launchInput: contract.launchInput})},
       ...await inferExistingAssets(contract, {read: c => readExistingAssets(c, {storyDirectionChanged}), contentHash})];

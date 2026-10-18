@@ -46,6 +46,9 @@ export function definePlan(input: PlanDefinition): PlanDefinition {
         throw new PlanValidationError(`step ${step.id} overwrites unknown artifact type ${type}`);
       }
     }
+    for (const type of step.preservesInChapterRange ?? []) {
+      if (![step.produces, ...step.overwrites].includes(type)) throw new PlanValidationError(`step ${step.id} cannot preserve untouched artifact ${type}`);
+    }
   }
 
   const stepById = new Map(input.steps.map((step) => [step.id, step]));
@@ -80,6 +83,7 @@ export function definePlan(input: PlanDefinition): PlanDefinition {
       requires: Object.freeze([...step.requires]),
       needs: Object.freeze([...step.needs]),
       overwrites: Object.freeze([...step.overwrites]),
+      ...(step.preservesInChapterRange ? {preservesInChapterRange: Object.freeze([...step.preservesInChapterRange])} : {}),
     }))),
   });
 }
@@ -177,5 +181,15 @@ export function readySteps(
   return remainingSteps(plan, facts, options.scope, options.stepIdsInScope).filter((step) =>
     step.requires.every((type) => isArtifactSatisfied(facts, type, options.scope, options.requireConfirmed)),
   );
+}
+
+/** Stale author edits require confirmation of saved content, never automatic replacement. */
+export function protectedRecoveryGate(
+  plan: PlanDefinition, facts: FactsSnapshot, scope: string, step: StepDefinition,
+): ArtifactType[] {
+  const artifact = latestArtifact(facts, step.produces, scope);
+  return step.gateable && artifact?.status === "stale" && artifact.protectedUserContent
+    && plan.steps.some(candidate => candidate.id === step.id)
+    ? [step.produces] : [];
 }
 
