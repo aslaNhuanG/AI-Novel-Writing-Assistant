@@ -1,6 +1,6 @@
 import type {DirectorChapterBudgetGrant, DirectorChapterBudgetStage, DirectorChapterBudgetView} from "@ai-novel/shared/types/director/chapterBudget";
 import type {PipelineDirectorSnapshot} from "../directorBridge";
-import {DIRECTOR_CHAPTER_PREFLIGHT_RESERVE_TOKENS, DIRECTOR_CHAPTER_TOKEN_LIMIT} from "./DirectorChapterUsageBudget";
+import {DIRECTOR_CHAPTER_PREFLIGHT_RESERVE_TOKENS, resolveChapterTokenLimit} from "./DirectorChapterUsageBudget";
 
 type Checkpoint = NonNullable<PipelineDirectorSnapshot["chapterUsage"]>[number];
 
@@ -8,7 +8,7 @@ export function chapterBudgetView(jobId: string, row: Checkpoint): DirectorChapt
   const usedTokens = row.effectiveTokens ?? row.totalTokens;
   const reserveTokens = row.budgetPause?.reserveTokens
     ?? (row.endJobTokens === undefined ? DIRECTOR_CHAPTER_PREFLIGHT_RESERVE_TOKENS : 0);
-  const tokenLimit = row.tokenLimit ?? DIRECTOR_CHAPTER_TOKEN_LIMIT;
+  const tokenLimit = row.tokenLimit ?? resolveChapterTokenLimit();
   // Cover the next step and one conservative fallback step, rounded for an editable recommendation.
   const recommendedLimit = Math.min(10_000_000,
     Math.ceil((Math.max(tokenLimit, usedTokens + reserveTokens) + DIRECTOR_CHAPTER_PREFLIGHT_RESERVE_TOKENS) / 1000) * 1000);

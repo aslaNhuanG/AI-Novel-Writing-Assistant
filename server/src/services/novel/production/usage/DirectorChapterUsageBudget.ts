@@ -4,6 +4,26 @@ export const DIRECTOR_CHAPTER_TOKEN_LIMIT = 100_000;
 /** Conservative fallback when the next stage has no usable estimate. */
 export const DIRECTOR_CHAPTER_PREFLIGHT_RESERVE_TOKENS = 16_000;
 
+/**
+ * Resolves the default per-chapter AI token budget. Overridable via the
+ * `DIRECTOR_CHAPTER_TOKEN_LIMIT` environment variable so operators can raise the
+ * default once (applies to every chapter) instead of authorizing each chapter
+ * manually. Missing/invalid values fall back to the built-in default. Chapters
+ * that already carry an explicit `tokenLimit` (a manual grant) keep it.
+ */
+export function resolveChapterTokenLimit(): number {
+  const raw = process.env.DIRECTOR_CHAPTER_TOKEN_LIMIT;
+  if (raw === undefined || String(raw).trim() === "") return DIRECTOR_CHAPTER_TOKEN_LIMIT;
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > 10_000_000) {
+    console.warn(
+      `[director-chapter-budget] 忽略无效的 DIRECTOR_CHAPTER_TOKEN_LIMIT=${raw}，使用默认 ${DIRECTOR_CHAPTER_TOKEN_LIMIT}。`,
+    );
+    return DIRECTOR_CHAPTER_TOKEN_LIMIT;
+  }
+  return parsed;
+}
+
 export interface ChapterUsageCounters {
   totalTokens: number;
   promptTokens: number;
@@ -88,7 +108,7 @@ export function observeChapterUsage(snapshot: PipelineDirectorSnapshot, chapterI
 }
 function observed(checkpoint: Checkpoint) {
   return {totalTokens: checkpoint.totalTokens,
-    exceeded: (checkpoint.effectiveTokens ?? checkpoint.totalTokens) >= (checkpoint.tokenLimit ?? DIRECTOR_CHAPTER_TOKEN_LIMIT)};
+    exceeded: (checkpoint.effectiveTokens ?? checkpoint.totalTokens) >= (checkpoint.tokenLimit ?? resolveChapterTokenLimit())};
 }
 /** Freeze attribution before any call whose subject is a future chapter. */
 export function finalizeChapterUsage(snapshot: PipelineDirectorSnapshot, chapterId: string, job: Usage, batch?: Usage) {

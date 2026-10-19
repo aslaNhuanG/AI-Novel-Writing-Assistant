@@ -1,6 +1,6 @@
 import { prisma } from "../../../../db/prisma";
 
-export type ChapterArtifactCheckpointClaim = "claimed" | "already_done" | "running";
+export type ChapterArtifactCheckpointClaim = "claimed" | "already_done" | "running" | "failed";
 
 export interface ChapterArtifactCheckpointIdentity {
   novelId: string;
@@ -55,11 +55,15 @@ export class ChapterArtifactCheckpointStore {
         try {
           const metadata = existing.metadataJson ? JSON.parse(existing.metadataJson) as Record<string, unknown> : {};
           if (Number(metadata.attemptCount ?? 0) >= MAX_FAILED_ATTEMPTS) {
-            return "already_done";
+            // A permanently failed checkpoint must NOT be reported as "already_done":
+            // doing so makes the recovery layer read a non-existent result and surface a
+            // misleading "缺少可恢复结果" error. Surface it as "failed" so the caller can
+            // re-throw the real underlying reason instead.
+            return "failed";
           }
           retryMetadata = { ...metadata, ...retryMetadata, attemptCount: Number(metadata.attemptCount ?? 0) + 1 };
         } catch {
-          return "already_done";
+          return "failed";
         }
       }
       const staleBefore = new Date(Date.now() - RUNNING_STALE_MS);

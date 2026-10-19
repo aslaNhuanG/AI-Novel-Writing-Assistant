@@ -22,6 +22,42 @@ function normalizeStatus(value: unknown, fallback: string): string {
   return text || fallback;
 }
 
+/**
+ * Runs a `createMany` and, if it throws, falls back to inserting rows one by one
+ * via `create`. This guards against connector-specific `createMany` failures
+ * (e.g. transient driver/transaction errors) so a single failing bulk insert
+ * cannot abort the whole state-snapshot persistence. The surrounding
+ * `$transaction` rolls back automatically on any error.
+ */
+async function createManyWithFallback<T>(
+  createMany: () => Promise<{ count: number }>,
+  createOne: (item: T) => Promise<unknown>,
+  items: T[],
+): Promise<void> {
+  if (items.length === 0) return;
+  try {
+    await createMany();
+  } catch {
+    for (const item of items) {
+      await createOne(item);
+    }
+  }
+}
+
+/**
+ * Removes duplicate rows that share the same composite key. The AI snapshot
+ * extraction can emit the same character/character-pair more than once in a
+ * single chapter, which would violate the model's `@@unique` constraint and
+ * abort persistence. The last occurrence wins.
+ */
+function dedupeByKey<T>(items: T[], keyOf: (item: T) => string): T[] {
+  const seen = new Map<string, T>();
+  for (const item of items) {
+    seen.set(keyOf(item), item);
+  }
+  return [...seen.values()];
+}
+
 interface StateChapterReference {
   id: string;
   order: number;
@@ -437,36 +473,54 @@ export class StateService {
       ]);
 
       if (normalizedCharacterStates.length > 0) {
-        await tx.characterState.createMany({
-          data: normalizedCharacterStates.map((item) => ({
+        const data = dedupeByKey(
+          normalizedCharacterStates.map((item) => ({
             snapshotId: snapshot.id,
             ...item,
           })),
-        });
+          (item) => String(item.characterId),
+        );
+        await createManyWithFallback(
+          () => tx.characterState.createMany({ data }),
+          (item) => tx.characterState.create({ data: item }),
+          data,
+        );
       }
       if (normalizedRelationStates.length > 0) {
-        await tx.relationState.createMany({
-          data: normalizedRelationStates.map((item) => ({
+        const data = dedupeByKey(
+          normalizedRelationStates.map((item) => ({
             snapshotId: snapshot.id,
             ...item,
           })),
-        });
+          (item) => `${item.sourceCharacterId}::${item.targetCharacterId}`,
+        );
+        await createManyWithFallback(
+          () => tx.relationState.createMany({ data }),
+          (item) => tx.relationState.create({ data: item }),
+          data,
+        );
       }
       if (normalizedInformationStates.length > 0) {
-        await tx.informationState.createMany({
-          data: normalizedInformationStates.map((item) => ({
-            snapshotId: snapshot.id,
-            ...item,
-          })),
-        });
+        const data = normalizedInformationStates.map((item) => ({
+          snapshotId: snapshot.id,
+          ...item,
+        }));
+        await createManyWithFallback(
+          () => tx.informationState.createMany({ data }),
+          (item) => tx.informationState.create({ data: item }),
+          data,
+        );
       }
       if (normalizedForeshadowStates.length > 0) {
-        await tx.foreshadowState.createMany({
-          data: normalizedForeshadowStates.map((item) => ({
-            snapshotId: snapshot.id,
-            ...item,
-          })),
-        });
+        const data = normalizedForeshadowStates.map((item) => ({
+          snapshotId: snapshot.id,
+          ...item,
+        }));
+        await createManyWithFallback(
+          () => tx.foreshadowState.createMany({ data }),
+          (item) => tx.foreshadowState.create({ data: item }),
+          data,
+        );
       }
       return snapshot.id;
     });

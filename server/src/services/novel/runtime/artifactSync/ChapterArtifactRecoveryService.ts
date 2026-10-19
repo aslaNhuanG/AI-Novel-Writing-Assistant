@@ -87,6 +87,10 @@ export class ChapterArtifactRecoveryService {
         Object.assign(aggregate, this.readConsumerResult(completed?.metadataJson ?? null));
         continue;
       }
+      if (claim === "failed") {
+        const completed = await this.deps.checkpoints.read(identity);
+        throw this.consumerFailureError(identity.artifactType, completed?.metadataJson ?? null);
+      }
       if (claim === "running") {
         throw new ChapterArtifactRecoveryPendingError(identity.artifactType);
       }
@@ -148,6 +152,10 @@ export class ChapterArtifactRecoveryService {
       const completed = await this.deps.checkpoints.read(identity);
       return this.readExtraction(completed?.metadataJson ?? null, contentHash);
     }
+    if (claim === "failed") {
+      const completed = await this.deps.checkpoints.read(identity);
+      throw this.consumerFailureError(identity.artifactType, completed?.metadataJson ?? null);
+    }
     if (claim === "running") {
       throw new ChapterArtifactRecoveryPendingError(identity.artifactType);
     }
@@ -196,6 +204,19 @@ export class ChapterArtifactRecoveryService {
       throw new Error("章节资产检查点恢复数据格式无效。");
     }
     return parsed as Record<string, unknown>;
+  }
+
+  private consumerFailureError(artifactType: string, metadataJson: string | null): Error {
+    let reason = "未知原因（检查点未记录失败详情）";
+    try {
+      const metadata = metadataJson ? (JSON.parse(metadataJson) as Record<string, unknown>) : {};
+      if (typeof metadata.reason === "string" && metadata.reason.trim()) {
+        reason = metadata.reason.trim();
+      }
+    } catch {
+      // ignore malformed metadata, fall back to default reason
+    }
+    return new Error(`章节资产消费者「${artifactType}」执行失败（已重试耗尽），需处理后重试：${reason}`);
   }
 
   private identity(
