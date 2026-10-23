@@ -56,7 +56,7 @@ const EMPTY_SESSION: ChapterEditorSessionState = {
   candidates: [],
   activeCandidateId: null,
   status: "idle",
-  viewMode: "block",
+  viewMode: "inline",
   mode: "revision",
 };
 
@@ -356,7 +356,7 @@ export default function ChapterEditorShell(props: ChapterEditorShellProps) {
         ...data,
         mode: "revision",
         status: "ready",
-        viewMode: "block",
+        viewMode: "inline",
         activeCandidateId: data.activeCandidateId ?? data.candidates[0]?.id ?? null,
         requestLabel: current.requestLabel,
         diagnosticCard: current.diagnosticCard,
@@ -412,7 +412,7 @@ export default function ChapterEditorShell(props: ChapterEditorShellProps) {
         mode: "continuation",
         continuationOperation: data.operation,
         status: "ready",
-        viewMode: "block",
+        viewMode: "inline",
         activeCandidateId: data.activeCandidateId ?? data.candidates[0]?.id ?? null,
         errorMessage: undefined,
       }));
