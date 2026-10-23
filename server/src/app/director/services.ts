@@ -41,6 +41,7 @@ export function getDirectorProductionServices(): DirectorNextServices {
     services.http.fillInitialCharacterSchedule = (novelId,input) => initialCharacterScheduleService.fill(novelId,input);
     services.http.readCharacterCandidates = runId => directorCharacterCandidates.read(runId);
     services.http.resolveCharacterCandidates = (runId, input) => directorCharacterCandidates.resolve(runId, input);
+    services.http.resyncCharacterCandidates = (runId, chapterId) => directorCharacterCandidates.resync(runId, chapterId);
     services.http.readLedgers = readDirectorLedgers;
     services.http.readCurrentRunId = async novelId => {
       const identity = await assertNovelDirectorVersion(novelId, "v2");

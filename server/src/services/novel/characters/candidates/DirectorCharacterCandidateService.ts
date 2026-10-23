@@ -12,6 +12,8 @@ import {buildChapterArtifactContentHash} from "../../runtime/artifactSync/Chapte
 import {canonicalizeCandidateReferences} from "./references";
 import {writeCharacterAppearances} from "../appearances";
 import {chapterArtifactDeltaOutputSchema} from "../../../../prompting/prompts/novel/chapterArtifactDelta.prompts";
+import {queueManualChapterSync} from "../../chapterEditor/synchronization/ManualChapterSyncStore";
+import {manualChapterSyncService} from "../../chapterEditor/synchronization/ManualChapterSyncService";
 
 const artifactType = (runId: string) => `director_v2_character_candidates:${runId}`;
 const sourceType = "director_v2_character_candidates";
@@ -133,12 +135,27 @@ export class DirectorCharacterCandidateService {
       this.db.directorNextRunControl.findUnique({where: {runId}, select: {status: true}}),
       this.db.generationJob.findFirst({where: {novelId: run.novelId, executionLeaseExpiresAt: {gt: new Date()}}}),
     ]);
-    const reviews: StoredReview[] = [];
+    const collected: {review: StoredReview; chapterId: string; createdAt: Date}[] = [];
     for (const row of rows) {
       const review = readReview(row.metadataJson);
       if (row.artifactType !== artifactType(runId) && (review.driver !== "auto" || !review.items.some(i => i.status === "pending"))) continue;
-      if (review.items.length) reviews.push(review);
+      if (review.items.length) collected.push({review, chapterId: review.chapterId, createdAt: row.createdAt});
     }
+    // 同一章节可能因正文改动产生多条候选记录（旧哈希 + 新哈希），只保留最新一条，避免面板重复展示。
+    const latestByChapter = new Map<string, {review: StoredReview; createdAt: Date}>();
+    for (const entry of collected) {
+      const prev = latestByChapter.get(entry.chapterId);
+      if (!prev || entry.createdAt > prev.createdAt) latestByChapter.set(entry.chapterId, entry);
+    }
+    const chapterIds = [...latestByChapter.keys()];
+    const chapters = chapterIds.length
+      ? await this.db.chapter.findMany({where: {id: {in: chapterIds}, novelId: run.novelId}, select: {id: true, content: true}})
+      : [];
+    const hashByChapter = new Map(chapters.map(c => [c.id, buildChapterArtifactContentHash(c.content ?? "")]));
+    const reviews: DirectorCharacterCandidateReview[] = [...latestByChapter.values()].map(({review}) => ({
+      ...review,
+      stale: hashByChapter.get(review.chapterId) !== review.contentHash,
+    }));
     return {reviews, characters, editable: !!control && ["paused", "waiting_gate", "completed"].includes(control.status) && !busy};
   }
 
@@ -183,6 +200,27 @@ export class DirectorCharacterCandidateService {
         }
       }
     }), {label: "director_v2.confirm_character_candidates"});
+  }
+
+  /**
+   * 重新同步某章的人物候选：复用章节编辑器已有的手动同步路径（重抽章节资产 delta 并重新 prepare
+   * 导演 V2 候选），以当前正文内容哈希生成新的候选记录。用于正文被改动后旧候选过期、却无确认入口的场景。
+   */
+  async resync(runId: string, chapterId: string): Promise<void> {
+    const run = await this.db.directorNextRun.findUnique({where: {id: runId}, select: {novelId: true, contractJson: true}});
+    if (!run) throw new AppError("找不到这次创作。", 404);
+    const epoch = readRunExecutionEpoch(run.contractJson);
+    await assertNovelDirectorVersion(run.novelId, "v2", epoch);
+    const control = await this.db.directorNextRunControl.findUnique({where: {runId}});
+    const busy = await this.db.generationJob.findFirst({where: {novelId: run.novelId, executionLeaseExpiresAt: {gt: new Date()}}});
+    if (!control || !["paused", "waiting_gate", "completed"].includes(control.status) || busy) {
+      throw new AppError("请等本轮章节处理结束后同步人物。", 409);
+    }
+    const chapter = await this.db.chapter.findFirst({where: {id: chapterId, novelId: run.novelId}, select: {id: true, novelId: true, content: true}});
+    if (!chapter) throw new AppError("找不到该章节。", 404);
+    const payload = await queueManualChapterSync(this.db, chapter);
+    const result = await manualChapterSyncService.run(payload);
+    if (result.status === "failed") throw new AppError(`重新同步失败：${result.reason ?? "未知原因"}`, 409);
   }
 
   async assertResolved(runId: string, reviewId: string, tx: Prisma.TransactionClient) {

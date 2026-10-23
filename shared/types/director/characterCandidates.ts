@@ -17,6 +17,8 @@ export interface DirectorCharacterCandidateReview {
   chapterOrder: number;
   contentHash: string;
   blocking: boolean;
+  /** 当前章节正文哈希已与候选生成时不一致（正文被改动），需重新同步后才能确认。 */
+  stale?: boolean;
   items: DirectorCharacterCandidateItem[];
 }
 export interface DirectorCharacterCandidatePage {

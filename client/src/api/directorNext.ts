@@ -184,6 +184,10 @@ export async function resolveDirectorCharacterCandidates(runId: string, input: i
   const {data} = await apiClient.post<ApiResponse<unknown>>(`/director-next/runs/${encodeURIComponent(runId)}/character-candidates`, input);
   return data;
 }
+export async function resyncDirectorCharacterCandidates(runId: string, chapterId: string) {
+  const {data} = await apiClient.post<ApiResponse<unknown>>(`/director-next/runs/${encodeURIComponent(runId)}/character-candidates/resync`, {chapterId});
+  return data;
+}
 
 /** Command deduplication identity, not an authentication token. LAN HTTP lacks randomUUID. */
 export function createDirectorCommandKey(): string {

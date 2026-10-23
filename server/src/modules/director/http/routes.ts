@@ -24,6 +24,7 @@ export interface DirectorNextHttpDeps {
   observeGeneration?: (novelId: string, listener: (snapshot: unknown) => void) => () => void;
   readCharacterCandidates?: (runId: string) => Promise<unknown>;
   resolveCharacterCandidates?: (runId: string, input: ResolveDirectorCharacterCandidates) => Promise<void>;
+  resyncCharacterCandidates?: (runId: string, chapterId: string) => Promise<void>;
 }
 
 const nonEmpty = z.string().trim().min(1);
@@ -146,6 +147,15 @@ export function createDirectorNextRouter(deps: DirectorNextHttpDeps): Router {
     if (!body.success) {sendValidationError(res, body.error); return;}
     if (!deps.resolveCharacterCandidates) {res.status(404).json({success: false}); return;}
     await deps.resolveCharacterCandidates(id.data, body.data);
+    res.json({success: true});
+  }));
+  router.post("/runs/:runId/character-candidates/resync", asyncRoute(async (req, res) => {
+    const id = nonEmpty.safeParse(req.params.runId);
+    const body = z.object({chapterId: nonEmpty}).safeParse(req.body);
+    if (!id.success) {sendValidationError(res, id.error); return;}
+    if (!body.success) {sendValidationError(res, body.error); return;}
+    if (!deps.resyncCharacterCandidates) {res.status(404).json({success: false}); return;}
+    await deps.resyncCharacterCandidates(id.data, body.data.chapterId);
     res.json({success: true});
   }));
   router.get("/novels/:novelId/generation-stream", (req, res) => {
