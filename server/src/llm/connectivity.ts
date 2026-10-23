@@ -22,6 +22,9 @@ import {
 
 export type ConnectivityProbeMode = "plain" | "structured" | "both";
 
+/** Enough room for a thinking model to answer after its reasoning block. */
+const PLAIN_PROBE_MAX_TOKENS = 256;
+
 const STRUCTURED_PROBE_SCHEMA = z.object({
   status: z.literal("ok"),
 });
@@ -67,6 +70,40 @@ function getProtocolCandidates(preferred?: ModelRouteRequestProtocol): ModelRout
     return [preferred, preferred === "anthropic" ? "openai_compatible" : "anthropic"];
   }
   return ["openai_compatible", "anthropic"];
+}
+
+/**
+ * Keeps the preferred protocol's failure as the primary reason.
+ * The alternate protocol is only a fallback, so its error must not replace the
+ * real cause: an OpenAI-compatible provider probed as Anthropic always ends in
+ * a `/messages` 404 that says nothing about the actual failure.
+ */
+function summarizeFailedAttempts(
+  attempts: LLMConnectivityStatus[],
+  key: "plain" | "structured",
+): LLMConnectivityStatus | null {
+  if (!attempts.length) return null;
+  const first = attempts[0];
+  const collectExtras = (primaryError: string | null) => attempts
+    .slice(1)
+    .map((status) => (key === "plain" ? status.plain : status.structured))
+    .filter((item): item is ConnectivityProbeStatus => Boolean(item))
+    .filter((item) => item.error && item.error !== primaryError)
+    .map((item) => `${item.requestProtocol ?? "unknown"}：${item.error}`);
+  if (key === "plain") {
+    const primary = first.plain;
+    if (!primary) return first;
+    const extras = collectExtras(primary.error);
+    if (!extras.length) return first;
+    const error = `${primary.error ?? "连接测试失败。"}\n备选协议同样失败 → ${extras.join("；")}`;
+    return { ...first, error, requestProtocol: primary.requestProtocol, plain: { ...primary, error } };
+  }
+  const primary = first.structured;
+  if (!primary) return first;
+  const extras = collectExtras(primary.error);
+  if (!extras.length) return first;
+  const error = `${primary.error ?? "连接测试失败。"}\n备选协议同样失败 → ${extras.join("；")}`;
+  return { ...first, error, requestProtocol: primary.requestProtocol, structured: { ...primary, error } };
 }
 
 function getStructuredFormatCandidates(input: {
@@ -115,7 +152,11 @@ async function testPlainConnection(input: {
       authMode: input.authMode,
       model: input.model,
       temperature: 0.1,
-      maxTokens: 16,
+      // A thinking model (GLM/DeepSeek reasoning) spends the whole budget on
+      // reasoning tokens and returns empty content when max_tokens is tiny,
+      // which used to fail the plain probe even though the endpoint works.
+      maxTokens: PLAIN_PROBE_MAX_TOKENS,
+      reasoningEnabled: false,
       requestProtocol: input.requestProtocol,
     });
     const llm = await getLLM(input.provider, {
@@ -124,7 +165,8 @@ async function testPlainConnection(input: {
       authMode: input.authMode,
       model: resolved.model,
       temperature: 0.1,
-      maxTokens: 16,
+      maxTokens: PLAIN_PROBE_MAX_TOKENS,
+      reasoningEnabled: false,
       requestProtocol: resolved.requestProtocol,
     });
     const start = Date.now();
@@ -303,14 +345,19 @@ async function testConnection(input: {
   let plain: LLMConnectivityStatus | null = null;
   let structured: LLMConnectivityStatus | null = null;
   if (probeMode === "plain" || probeMode === "both") {
+    const attempts: LLMConnectivityStatus[] = [];
     for (const requestProtocol of getProtocolCandidates(input.requestProtocol)) {
-      plain = await testPlainConnection({ ...input, requestProtocol });
-      if (plain.ok) {
+      const attempt = await testPlainConnection({ ...input, requestProtocol });
+      attempts.push(attempt);
+      if (attempt.ok) {
+        plain = attempt;
         break;
       }
     }
+    plain ??= summarizeFailedAttempts(attempts, "plain");
   }
   if (probeMode === "structured" || probeMode === "both") {
+    const attempts: LLMConnectivityStatus[] = [];
     for (const requestProtocol of getProtocolCandidates(input.requestProtocol)) {
       for (const structuredResponseFormat of getStructuredFormatCandidates({
         provider: input.provider,
@@ -319,8 +366,10 @@ async function testConnection(input: {
         requestProtocol,
         preferred: input.structuredResponseFormat,
       })) {
-        structured = await testStructuredConnection({ ...input, requestProtocol, structuredResponseFormat });
-        if (structured.ok) {
+        const attempt = await testStructuredConnection({ ...input, requestProtocol, structuredResponseFormat });
+        attempts.push(attempt);
+        if (attempt.ok) {
+          structured = attempt;
           break;
         }
       }
@@ -328,6 +377,7 @@ async function testConnection(input: {
         break;
       }
     }
+    structured ??= summarizeFailedAttempts(attempts, "structured");
   }
   return mergeProbeStatuses({
     provider: input.provider,

@@ -24,10 +24,12 @@ function formatConnectionTestResult(response: Awaited<ReturnType<typeof testLLMC
   const latency = response.data?.latency ?? 0;
   const plain = response.data?.plain;
   const structured = response.data?.structured;
+  const protocolLabel = (value: string | null | undefined) =>
+    value === "openai_compatible" ? "OpenAI 兼容" : value === "anthropic" ? "Anthropic" : value ?? "";
   const plainText = plain
     ? plain.ok
-      ? `普通连通正常${plain.latency != null ? ` (${plain.latency}ms)` : ""}`
-      : `普通连通失败${plain.error ? `：${plain.error}` : ""}`
+      ? `普通连通正常${plain.latency != null ? ` (${plain.latency}ms)` : ""}${plain.requestProtocol ? `，协议 ${protocolLabel(plain.requestProtocol)}` : ""}`
+      : `普通连通失败${plain.requestProtocol ? `（${protocolLabel(plain.requestProtocol)}）` : ""}${plain.error ? `：${plain.error}` : ""}`
     : "普通连通未检测";
   const structuredText = structured
     ? structured.ok

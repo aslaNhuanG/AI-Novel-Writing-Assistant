@@ -566,11 +566,13 @@ export async function testLLMConnection(payload: {
         ok: boolean;
         latency: number | null;
         error: string | null;
+        requestProtocol: "openai_compatible" | "anthropic" | null;
       } | null;
       structured: {
         ok: boolean;
         latency: number | null;
         error: string | null;
+        requestProtocol: "openai_compatible" | "anthropic" | null;
         strategy: string | null;
         reasoningForcedOff: boolean;
         fallbackAvailable: boolean;
