@@ -108,6 +108,8 @@ export const PROVIDERS: Record<BuiltinLLMProvider, ProviderConfig> = {
     baseURL: "https://open.bigmodel.cn/api/paas/v4",
     defaultModel: "glm-4.5-air",
     models: [
+      "glm-5.3",
+      "glm-5.3-flash",
       "glm-4.7",
       "glm-4.7-flash",
       "glm-4.7-flashx",
