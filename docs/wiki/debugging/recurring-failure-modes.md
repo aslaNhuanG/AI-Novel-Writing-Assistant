@@ -70,3 +70,9 @@
 模型生成多个修复目标时可能让小片段包含在大段中。按返回顺序修改正文会让小片段从编辑后的文本消失，产生误导性的 missing_target。全部目标必须先在同一份原文定位，统一校验唯一性与互不重叠；成功后从后往前应用。任一校验失败返回完整原文，不能返回部分修改稿。Prompt 要求同一区域的问题合并为一条补丁；运行时仍报告 overlapping_target，不能猜测丢弃哪条修复意图，也不能额外启动无预算的补丁调用。局部失败按任务冻结的问题策略记录质量债。
 
 排查单章超限应分开读取 GenerationJob 总用量、chapterUsage 起止计数和逐次调用日志。正文保存之后的后续窗口决策与章节规划属于作业消耗，不属于保存章的消耗。新日志保留流式返回的实际 input/output/total Tokens；累计流片段取最终最大值，不重复相加。中断流的已报告消耗也写入错误记录；供应商未报告的用量保持未知。历史缺失的逐次用量不能用字符估算回填成实际消耗。
+
+## 删除小说后导演任务残留导致 DirectorRun 外键违反
+
+`deleteNovel` 原先只清理 `failed` 状态的关联任务，非 `failed` 的导演任务（`NovelWorkflowTask` lane=`auto_director`）会残留。删除小说时，SQLite 外键 `onDelete: SetNull` 只清空 `task.novelId` / `directorRun.novelId` 两列，但 `task.data`(JSON) 内嵌的 `novelId` 不受外键约束影响而保留旧值。当 follow-up（`continue`/`takeover`）对悬空任务记录步骤时，`normalizeRuntimeSnapshot` 以 `directorTaskData.novelId` 回退填充 snapshot 的 `novelId`，`persistDirectorRuntimeSnapshot` 把已不存在的 `novelId` 写回 `DirectorRun.upsert`，触发 `Foreign key constraint violated`。
+
+修复：删书前在事务内清理所有 `auto_director` 任务的 `DirectorRun / DirectorRunCommand / DirectorStepRun / DirectorEvent / DirectorArtifact / DirectorLlmUsageRecord` 链路，再删 `Novel`；不要依赖外键 SET NULL 来清除 JSON 内嵌引用。`DirectorRuntimePersistence.ts:111` 的 upsert 报错通常是这现象的表象，根因在删除闭环（见 `novelCoreCrudService.deleteNovel`）。

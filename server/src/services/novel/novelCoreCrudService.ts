@@ -333,6 +333,78 @@ export class NovelCoreCrudService {
         });
       }
 
+      // 清理已删除小说上残留的导演任务链路（不限状态）。
+      // 原先只删除 failed 状态的关联任务，非 failed 的导演任务会残留；
+      // 其 task.data JSON 内嵌的 novelId 不受外键 SET NULL 影响，follow-up 时
+      // 会被写回 DirectorRun，因 Novel 已不存在而触发外键约束违反。
+      const directorTasks = await transaction.novelWorkflowTask.findMany({
+        where: { novelId: id, lane: "auto_director" },
+        select: { id: true },
+      });
+      const directorTaskIds = directorTasks.map((task) => task.id);
+      if (directorTaskIds.length > 0) {
+        const directorRuns = await transaction.directorRun.findMany({
+          where: { taskId: { in: directorTaskIds } },
+          select: { id: true },
+        });
+        const directorRunIds = directorRuns.map((run) => run.id);
+        await transaction.directorLlmUsageRecord.deleteMany({
+          where: { taskId: { in: directorTaskIds } },
+        });
+        await transaction.directorStepRun.deleteMany({
+          where: { taskId: { in: directorTaskIds } },
+        });
+        await transaction.directorEvent.deleteMany({
+          where: { taskId: { in: directorTaskIds } },
+        });
+        await transaction.directorArtifact.deleteMany({
+          where: { taskId: { in: directorTaskIds } },
+        });
+        await transaction.directorRunCommand.deleteMany({
+          where: { taskId: { in: directorTaskIds } },
+        });
+        if (directorRunIds.length > 0) {
+          await transaction.directorLlmUsageRecord.deleteMany({
+            where: { runId: { in: directorRunIds } },
+          });
+        }
+        await transaction.directorRun.deleteMany({
+          where: { taskId: { in: directorTaskIds } },
+        });
+        await transaction.novelWorkflowTask.deleteMany({
+          where: { id: { in: directorTaskIds } },
+        });
+      }
+
+      // 清理 director-next 运行链路（不限状态）。
+      // DirectorNextRun.novelId 是裸列、与 Novel 无外键关系，删书不会级联清除，
+      // 会残留孤儿 run/control/event/command/artifact 记录，污染任务中心与恢复入口。
+      const directorNextRuns = await transaction.directorNextRun.findMany({
+        where: { novelId: id },
+        select: { id: true },
+      });
+      const directorNextRunIds = directorNextRuns.map((run) => run.id);
+      if (directorNextRunIds.length > 0) {
+        await transaction.directorNextCommand.deleteMany({
+          where: { runId: { in: directorNextRunIds } },
+        });
+        await transaction.directorNextEvent.deleteMany({
+          where: { runId: { in: directorNextRunIds } },
+        });
+        await transaction.directorNextArtifact.deleteMany({
+          where: { novelId: id },
+        });
+        await transaction.directorNextQualityDebt.deleteMany({
+          where: { runId: { in: directorNextRunIds } },
+        });
+        await transaction.directorNextRunControl.deleteMany({
+          where: { runId: { in: directorNextRunIds } },
+        });
+        await transaction.directorNextRun.deleteMany({
+          where: { id: { in: directorNextRunIds } },
+        });
+      }
+
       await transaction.novel.delete({ where: { id } });
     });
     queueRagDelete("novel", id);
