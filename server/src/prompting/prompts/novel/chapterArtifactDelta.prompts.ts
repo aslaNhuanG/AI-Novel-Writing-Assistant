@@ -48,6 +48,25 @@ function normalizeForeshadowState(value: unknown): unknown {
   };
 }
 
+/**
+ * 模型对「无从何来 / 无补充说明」的自然写法是空字符串，而位置 schema 的可空文本字段
+ * 只接受 null 或缺省，空串会撞 too_small 校验、触发无谓的修复重试（按章反复命中）。
+ * 这里把空串统一归一化为 null；必填字段不受影响，仍按原规则校验。
+ */
+function normalizeCharacterLocationDelta(value: unknown): unknown {
+  if (!isRecord(value)) {
+    return value;
+  }
+  const normalized: Record<string, unknown> = { ...value };
+  for (const key of ["fromLocation", "locationName", "explanation"] as const) {
+    const current = normalized[key];
+    if (typeof current === "string" && current.trim() === "") {
+      normalized[key] = null;
+    }
+  }
+  return normalized;
+}
+
 function normalizeCharacterResourceDelta(value: unknown): unknown {
   if (!isRecord(value)) {
     return value;
@@ -449,6 +468,13 @@ export const chapterArtifactDeltaSyncPlanSchema = z.preprocess(normalizeSyncPlan
   reason: z.string().trim().min(1),
 }));
 
+export const chapterArtifactCharacterLocationDeltasSchema = z.array(
+  z.preprocess(normalizeCharacterLocationDelta, characterLocationDeltaSchema.extend({
+    // Newly discovered identities receive the real ID only after candidate confirmation.
+    characterId: z.string().trim().nullish().transform(value => value ?? ""),
+  })),
+).default([]);
+
 export const chapterArtifactDeltaOutputSchema = z.preprocess(normalizeArtifactDeltaOutput, z.object({
   summary: z.string().trim().min(1),
   concreteFacts: z.array(chapterConcreteFactSchema).default([]),
@@ -458,10 +484,7 @@ export const chapterArtifactDeltaOutputSchema = z.preprocess(normalizeArtifactDe
   }))).max(8).default([]),
   payoffDeltas: z.array(z.preprocess(normalizePayoffDelta, payoffLedgerSyncItemSchema)).default([]),
   relationDynamics: z.array(chapterArtifactRelationDynamicSchema).default([]),
-  characterLocationDeltas: z.array(characterLocationDeltaSchema.extend({
-    // Newly discovered identities receive the real ID only after candidate confirmation.
-    characterId: z.string().trim().nullish().transform(value => value ?? ""),
-  })).default([]),
+  characterLocationDeltas: chapterArtifactCharacterLocationDeltasSchema,
   factionUpdates: z.array(chapterArtifactFactionUpdateSchema).default([]),
   characterCandidates: z.array(chapterArtifactCharacterCandidateSchema).default([]),
   // Missing means historical extraction without appearance coverage; [] means reviewed and empty.
