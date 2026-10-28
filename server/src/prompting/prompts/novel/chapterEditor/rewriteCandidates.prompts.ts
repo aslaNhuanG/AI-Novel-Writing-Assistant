@@ -31,6 +31,61 @@ function renderOptionalBlock(title: string, value?: string | null): string {
   return `${title}\n${text || "无"}`;
 }
 
+function normalizeCandidateText(text: string): string {
+  return text
+    .replace(/\s+/g, "")
+    .replace(/[，。！？、；：""''（）…—·,.!?;:"'()\-]/g, "");
+}
+
+function candidateTextSimilarity(left: string, right: string): number {
+  const a = normalizeCandidateText(left);
+  const b = normalizeCandidateText(right);
+  if (!a || !b) {
+    return 0;
+  }
+  if (a === b) {
+    return 1;
+  }
+  const toBigrams = (text: string): Set<string> => {
+    const grams = new Set<string>();
+    for (let index = 0; index < text.length - 1; index += 1) {
+      grams.add(text.slice(index, index + 2));
+    }
+    return grams;
+  };
+  const leftGrams = toBigrams(a);
+  const rightGrams = toBigrams(b);
+  let shared = 0;
+  for (const gram of leftGrams) {
+    if (rightGrams.has(gram)) {
+      shared += 1;
+    }
+  }
+  return (2 * shared) / (leftGrams.size + rightGrams.size);
+}
+
+/**
+ * 候选差异校验：模型退化时会给内容相同（标签不同）的多个候选，schema 的 min(2) 查不出，
+ * 过去一路漏到服务的精确去重才发现不足 2 个，直接抛「AI 未返回足够的候选版本」且无重试。
+ * 这里在 prompt 层拦截，让 repair / 语义重试带失败原因重新生成。
+ */
+function assertCandidateDistinctness(candidates: Array<{ content: string }>): void {
+  for (let i = 0; i < candidates.length; i += 1) {
+    for (let j = i + 1; j < candidates.length; j += 1) {
+      const left = candidates[i]!.content;
+      const right = candidates[j]!.content;
+      const identical = normalizeCandidateText(left) === normalizeCandidateText(right);
+      const longEnough = Math.max(normalizeCandidateText(left).length, normalizeCandidateText(right).length) >= 40;
+      const nearDuplicate = longEnough && candidateTextSimilarity(left, right) >= 0.95;
+      if (identical || nearDuplicate) {
+        throw new Error(
+          `候选 ${i + 1} 与候选 ${j + 1} 的改写正文重复或几乎相同：每个候选必须采用不同的改写策略，给出真正可比较的版本。`,
+        );
+      }
+    }
+  }
+}
+
 export const chapterEditorRewriteCandidatesPrompt: PromptAsset<
   ChapterEditorRewriteCandidatesPromptInput,
   ChapterEditorRewriteCandidatesParsed
@@ -75,6 +130,13 @@ export const chapterEditorRewriteCandidatesPrompt: PromptAsset<
     mode: "auto",
     note: "返回 2 到 3 个候选改写方案，保持 JSON 稳定。",
   },
+  semanticRetryPolicy: {
+    maxAttempts: 2,
+  },
+  postValidate: (output) => {
+    assertCandidateDistinctness(output.candidates);
+    return output;
+  },
   render: (input, context) => {
     const candidateStyle = context.slots?.text("chapterEditor.candidateStyle")
       ?? "候选要形成清晰差异，例如更自然、更克制、更强化情绪，但都要可用。";
@@ -101,12 +163,13 @@ export const chapterEditorRewriteCandidatesPrompt: PromptAsset<
       "候选要求：",
       "1. 返回 2 到 3 个候选。",
       "2. 每个候选都必须是完整可替换的片段文本。",
-      "3. rationale 用一句话说明这版主要改法。",
-      "4. riskNotes 列出 0 到 3 条需要用户注意的风险。",
-      "5. macroAlignmentNote 用一句话说明这些候选如何服务本章/本卷目标。",
-      "6. label 要短，适合在编辑器里做候选切换。",
-      "7. summary 用一句话概括主要改动。",
-      "8. semanticTags 只保留 2 到 4 个高价值标签，例如“增强情绪”“压缩重复”“补足动作细节”。",
+      "3. 各候选正文必须显著不同：不得返回相同或仅差个别字词的多个版本；每个候选必须采用不同的改写策略（例如更自然、更克制、强化情绪、调整节奏），确保用户有可比较的选择。",
+      "4. rationale 用一句话说明这版主要改法。",
+      "5. riskNotes 列出 0 到 3 条需要用户注意的风险。",
+      "6. macroAlignmentNote 用一句话说明这些候选如何服务本章/本卷目标。",
+      "7. label 要短，适合在编辑器里做候选切换。",
+      "8. summary 用一句话概括主要改动。",
+      "9. semanticTags 只保留 2 到 4 个高价值标签，例如“增强情绪”“压缩重复”“补足动作细节”。",
       "",
       "改写范围：",
       "1. selection 表示只改写选中片段。",
