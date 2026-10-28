@@ -8,6 +8,7 @@ import type { StoryMacroPlan } from "@ai-novel/shared/types/storyMacro";
 import { runStructuredPrompt } from "../../../prompting/core/promptRunner";
 import { logMemoryUsage } from "../../../runtime/memoryTelemetry";
 import { createVolumeChapterListPrompt } from "../../../prompting/prompts/novel/volume/chapterList.prompts";
+import { chapterTitleDedupPrompt } from "../../../prompting/prompts/novel/volume/chapterTitleDedup.prompts";
 import { buildVolumeChapterListContextBlocks } from "../../../prompting/prompts/novel/volume/contextBlocks";
 import {
   inferRequiredChapterCountFromBeatSheet,
@@ -222,6 +223,207 @@ function isMergedVolumeChapterListComplete(params: {
   });
 }
 
+// 章节列表单次生成的输出 token 预算与分块阈值。
+// 背景：一次要求生成的章数过多时，整段 JSON 会超过输出上限被截断，归类为
+// incomplete_json；补括号式截断修复救不回字符串中间的截断，语义重试又不调预算，
+// 于是连续失败。这里抬高单次预算，并对超过安全章数的 beat 再分块，保证每次请求的
+// 输出都落在预算内，从根因上消除该失败。
+const CHAPTER_LIST_MAX_OUTPUT_TOKENS = 8192;
+const CHAPTER_LIST_CHUNK_SAFE_CHAPTERS = 12;
+
+function resolveChapterListMaxTokens(chapterCount: number, entrypoint?: string): number {
+  const perChapterTokens = entrypoint === "director_next" ? 600 : 420;
+  return Math.min(
+    CHAPTER_LIST_MAX_OUTPUT_TOKENS,
+    900 + chapterCount * perChapterTokens,
+  );
+}
+
+interface ChapterChunkPlan {
+  chapterCount: number;
+  chapterStartOrder: number;
+  chapterEndOrder: number;
+}
+
+function splitBeatIntoChapterChunks(beatPlan: BeatGenerationPlan): ChapterChunkPlan[] {
+  const total = beatPlan.chapterCount;
+  if (total <= CHAPTER_LIST_CHUNK_SAFE_CHAPTERS) {
+    return [{
+      chapterCount: total,
+      chapterStartOrder: beatPlan.chapterStartOrder,
+      chapterEndOrder: beatPlan.chapterEndOrder,
+    }];
+  }
+  const chunks: ChapterChunkPlan[] = [];
+  let cursor = beatPlan.chapterStartOrder;
+  let remaining = total;
+  while (remaining > 0) {
+    const size = Math.min(CHAPTER_LIST_CHUNK_SAFE_CHAPTERS, remaining);
+    chunks.push({
+      chapterCount: size,
+      chapterStartOrder: cursor,
+      chapterEndOrder: cursor + size - 1,
+    });
+    cursor += size;
+    remaining -= size;
+  }
+  return chunks;
+}
+
+function appendChunkCarryoverSummary(
+  base: string | null | undefined,
+  chapters: GeneratedVolumeChapterBlock["chapters"],
+  beatLabel: string,
+): string {
+  const lines = chapters.map((chapter) => `- ${chapter.title}：${chapter.summary}`);
+  const block = [
+    `【同一节奏段「${beatLabel}」已生成的前置章节，后续章节必须承接其局面，不得重复起线】`,
+    ...lines,
+    "【以上章节名均已被占用，后续章节不得重复使用】",
+  ].join("\n");
+  const trimmedBase = base?.trim();
+  return trimmedBase ? `${trimmedBase}\n${block}` : block;
+}
+
+const CHAPTER_TITLE_COLLISION_REPAIR_ROUNDS = 2;
+
+function isChapterTitleCollisionError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("章节标题出现重复");
+}
+
+function buildChapterTitleCollisionRepairReason(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const matched = message.match(/章节标题出现重复：(.+?)。/);
+  const collidedTitle = matched?.[1]?.trim();
+  return [
+    collidedTitle
+      ? `标题撞车：「${collidedTitle}」已被其他章节占用。`
+      : "标题撞车：输出中仍有章节标题与已占用标题重复。",
+    "必须把这些章节的标题完全换一个写法：更换对象、动作、地点或角度。",
+    "不得使用近似变体——只增删一两个字、只换语序都算没有换。",
+    "也不得使用已占用清单中的任何其他标题；其余章节标题如无重复可保持不变。",
+  ].join("\n");
+}
+
+interface MergedChapterTitleDedupContext {
+  volumeTitle: string;
+  beatLabels: Map<string, string>;
+  options: VolumeGenerateOptions;
+  novelId: string;
+  volumeId: string;
+}
+
+function findDuplicateChapterTitleGroups<T extends { title: string }>(chapters: T[]): T[][] {
+  const byTitle = new Map<string, T[]>();
+  for (const chapter of chapters) {
+    const title = chapter.title.trim();
+    if (!title) continue;
+    const bucket = byTitle.get(title);
+    if (bucket) {
+      bucket.push(chapter);
+    } else {
+      byTitle.set(title, [chapter]);
+    }
+  }
+  return [...byTitle.values()].filter((bucket) => bucket.length > 1);
+}
+
+/**
+ * 确定性兜底：消重调用失败或仍有残留时，保证标题唯一（进程不中断）。
+ * 每组重复标题保留第一个，其余按「·二 / ·三」追加序号直到唯一。
+ */
+function applyDeterministicChapterTitleFallback<T extends { title: string }>(chapters: T[]): string[] {
+  const usedTitles = new Set(chapters.map((chapter) => chapter.title.trim()).filter(Boolean));
+  const occurrenceCounts = new Map<string, number>();
+  const fallbackTitles: string[] = [];
+  const ordinalLabels = ["二", "三", "四", "五", "六", "七", "八", "九", "十"];
+
+  for (const chapter of chapters) {
+    const title = chapter.title.trim();
+    if (!title) continue;
+    const occurrence = (occurrenceCounts.get(title) ?? 0) + 1;
+    occurrenceCounts.set(title, occurrence);
+    if (occurrence === 1) continue;
+
+    let ordinal = occurrence;
+    let candidate = `${title}·${ordinalLabels[ordinal - 2] ?? ordinal}`;
+    while (usedTitles.has(candidate)) {
+      ordinal += 1;
+      candidate = `${title}·${ordinalLabels[ordinal - 2] ?? ordinal}`;
+    }
+    usedTitles.add(candidate);
+    chapter.title = candidate;
+    fallbackTitles.push(candidate);
+  }
+
+  return fallbackTitles;
+}
+
+/**
+ * 合并层标题消重：分块/跨 beat 生成后，模型无视长占用清单时仍可能漏出重复标题。
+ * 以前这里直接抛错葬送整个 attempt；现在先做聚焦重命名（小块输入 + 明确禁用清单），
+ * 失败再走确定性兜底，最后才交给 assertChapterTitleDiversity 兜底校验。
+ */
+async function ensureUniqueMergedChapterTitles<T extends { title: string; summary: string; beatKey?: string | null; chapterOrder: number }>(
+  chapters: T[],
+  context: MergedChapterTitleDedupContext,
+): Promise<{ repairedTitles: string[]; fallbackTitles: string[] }> {
+  const duplicateGroups = findDuplicateChapterTitleGroups(chapters);
+  if (duplicateGroups.length === 0) {
+    return { repairedTitles: [], fallbackTitles: [] };
+  }
+
+  const renameTargets = duplicateGroups.flatMap((group) => group.slice(1).map((chapter) => ({
+    chapterOrder: chapter.chapterOrder,
+    beatLabel: context.beatLabels.get(chapter.beatKey ?? "") ?? "未知节奏段",
+    title: chapter.title,
+    summary: chapter.summary,
+  })));
+  const reservedTitles = chapters.map((chapter) => chapter.title.trim()).filter(Boolean);
+
+  const renames = new Map<number, string>();
+  try {
+    const result = await runStructuredPrompt({
+      asset: chapterTitleDedupPrompt,
+      promptInput: {
+        volumeTitle: context.volumeTitle,
+        duplicates: renameTargets,
+        reservedTitles,
+      },
+      options: {
+        provider: context.options.provider,
+        model: context.options.model,
+        temperature: 0.3,
+        maxTokens: 1024,
+        novelId: context.novelId,
+        volumeId: context.volumeId,
+        taskId: context.options.taskId,
+        stage: "structured_outline",
+        itemKey: "chapter_title_dedup",
+        scope: "chapter_list",
+        entrypoint: context.options.entrypoint,
+        signal: context.options.signal,
+      },
+    });
+    for (const rename of result.output.renames) {
+      renames.set(rename.chapterOrder, rename.title.trim());
+    }
+  } catch {
+    // 消重调用失败不阻断生成：走确定性兜底
+  }
+
+  for (const chapter of chapters) {
+    const renamed = renames.get(chapter.chapterOrder);
+    if (renamed) {
+      chapter.title = renamed;
+    }
+  }
+
+  const fallbackTitles = applyDeterministicChapterTitleFallback(chapters);
+  return { repairedTitles: [...renames.values()], fallbackTitles };
+}
+
 async function generateBeatChapterBlock(params: {
   document: VolumePlanDocument;
   workspace: VolumeWorkspace;
@@ -236,70 +438,137 @@ async function generateBeatChapterBlock(params: {
   previousBeatChapterSummary?: string | null;
   preservedBeatChapterSummary?: string | null;
   chapterBudgets: number[];
+  /** 本次运行内已生成 beat 的章节标题（document 不随循环更新，需显式下传，防止跨 beat 撞车） */
+  accumulatedChapterTitles?: string[];
 }): Promise<GeneratedVolumeChapterBlock> {
   const targetIndex = params.document.volumes.findIndex((volume) => volume.id === params.targetVolume.id);
-  const promptInput = {
-    novel: params.novel,
-    workspace: params.workspace,
-    storyMacroPlan: params.storyMacroPlan,
-    strategyPlan: params.document.strategyPlan,
-    targetVolume: params.targetVolume,
-    targetBeatSheet: params.targetBeatSheet,
-    targetBeat: params.beatPlan.beat,
-    previousBeat: params.previousBeat,
-    nextBeat: params.nextBeat,
-    previousVolume: targetIndex > 0 ? params.document.volumes[targetIndex - 1] : undefined,
-    nextVolume: targetIndex >= 0 && targetIndex < params.document.volumes.length - 1
-      ? params.document.volumes[targetIndex + 1]
-      : undefined,
-    guidance: params.options.guidance,
-    targetBeatChapterCount: params.beatPlan.chapterCount,
-    targetChapterStartOrder: params.beatPlan.chapterStartOrder,
-    targetChapterEndOrder: params.beatPlan.chapterEndOrder,
-    nextAvailableChapterOrder: params.beatPlan.chapterStartOrder,
-    previousBeatChapterSummary: params.previousBeatChapterSummary,
-    preservedBeatChapterSummary: params.preservedBeatChapterSummary,
+  const beatIsBookFinale = isCompactBookFinaleBeat({
+    completionProfile: params.novel.completionProfile,
+    targetVolumeIndex: targetIndex,
+    chapterBudgets: params.chapterBudgets,
+    beatChapterEndOrder: params.beatPlan.chapterEndOrder,
+  });
+  const reservedChapterTitles = Array.from(new Set([
+    ...(params.accumulatedChapterTitles ?? []),
+    ...params.targetVolume.chapters
+      .filter((chapter) => chapter.beatKey !== params.beatPlan.beat.key)
+      .map((chapter) => chapter.title),
+  ]));
+  const characterIds = params.options.entrypoint === "director_next" ? params.novel.characters.map(character => {
+    if (!character.id) throw new Error("角色出场初排缺少角色 ID。");
+    return character.id;
+  }) : undefined;
+
+  const runChunk = async (
+    chunk: ChapterChunkPlan,
+    carryoverSummary: string | null,
+    reservedTitles: string[],
+  ): Promise<GeneratedVolumeChapterBlock> => {
+    const promptInput = {
+      novel: params.novel,
+      workspace: params.workspace,
+      storyMacroPlan: params.storyMacroPlan,
+      strategyPlan: params.document.strategyPlan,
+      targetVolume: params.targetVolume,
+      targetBeatSheet: params.targetBeatSheet,
+      targetBeat: params.beatPlan.beat,
+      previousBeat: params.previousBeat,
+      nextBeat: params.nextBeat,
+      previousVolume: targetIndex > 0 ? params.document.volumes[targetIndex - 1] : undefined,
+      nextVolume: targetIndex >= 0 && targetIndex < params.document.volumes.length - 1
+        ? params.document.volumes[targetIndex + 1]
+        : undefined,
+      guidance: params.options.guidance,
+      targetBeatChapterCount: chunk.chapterCount,
+      targetChapterStartOrder: chunk.chapterStartOrder,
+      targetChapterEndOrder: chunk.chapterEndOrder,
+      nextAvailableChapterOrder: chunk.chapterStartOrder,
+      previousBeatChapterSummary: carryoverSummary,
+      preservedBeatChapterSummary: params.preservedBeatChapterSummary,
+    };
+
+    let retryReason: string | null = null;
+    for (let round = 0; round <= CHAPTER_TITLE_COLLISION_REPAIR_ROUNDS; round += 1) {
+      try {
+        const generated = await runStructuredPrompt({
+          asset: createVolumeChapterListPrompt({
+            targetChapterCount: chunk.chapterCount,
+            targetBeatKey: params.beatPlan.beat.key,
+            targetBeatLabel: params.beatPlan.beat.label,
+            isBookFinale: beatIsBookFinale && chunk.chapterEndOrder === params.beatPlan.chapterEndOrder,
+            reservedChapterTitles: reservedTitles,
+            characterIds,
+          }),
+          promptInput: { ...promptInput, retryReason },
+          contextBlocks: buildVolumeChapterListContextBlocks(promptInput),
+          options: {
+            provider: params.options.provider,
+            model: params.options.model,
+            temperature: params.options.temperature ?? 0.35,
+            maxTokens: resolveChapterListMaxTokens(chunk.chapterCount, params.options.entrypoint),
+            novelId: params.document.novelId,
+            volumeId: params.targetVolume.id,
+            taskId: params.options.taskId,
+            stage: "structured_outline",
+            itemKey: "chapter_list",
+            scope: "chapter_list",
+            entrypoint: params.options.entrypoint,
+            signal: params.options.signal,
+          },
+        });
+
+        return generated.output;
+      } catch (error) {
+        // 仅对标题撞车做聚焦修复：大 beat 分块后占用清单可达上百条，
+        // 模型经常无视长清单继续产出近似变体；但对「这个具体标题被占用、
+        // 必须完全换角度」的短指令响应良好。其他错误原样抛出。
+        if (round >= CHAPTER_TITLE_COLLISION_REPAIR_ROUNDS || !isChapterTitleCollisionError(error)) {
+          throw error;
+        }
+        retryReason = buildChapterTitleCollisionRepairReason(error);
+      }
+    }
+
+    throw new Error("章节标题撞车修复轮次用尽。");
   };
 
-  const generated = await runStructuredPrompt({
-    asset: createVolumeChapterListPrompt({
-      targetChapterCount: params.beatPlan.chapterCount,
-      targetBeatKey: params.beatPlan.beat.key,
-      targetBeatLabel: params.beatPlan.beat.label,
-      isBookFinale: isCompactBookFinaleBeat({
-        completionProfile: params.novel.completionProfile,
-        targetVolumeIndex: targetIndex,
-        chapterBudgets: params.chapterBudgets,
-        beatChapterEndOrder: params.beatPlan.chapterEndOrder,
-      }),
-      reservedChapterTitles: params.targetVolume.chapters
-        .filter((chapter) => chapter.beatKey !== params.beatPlan.beat.key)
-        .map((chapter) => chapter.title),
-      characterIds: params.options.entrypoint === "director_next" ? params.novel.characters.map(character => {
-        if (!character.id) throw new Error("角色出场初排缺少角色 ID。");
-        return character.id;
-      }) : undefined,
-    }),
-    promptInput,
-    contextBlocks: buildVolumeChapterListContextBlocks(promptInput),
-    options: {
-      provider: params.options.provider,
-      model: params.options.model,
-      temperature: params.options.temperature ?? 0.35,
-      maxTokens: Math.min(params.options.entrypoint === "director_next" ? 6_400 : 4_800,
-        900 + params.beatPlan.chapterCount * (params.options.entrypoint === "director_next" ? 380 : 260)),
-      novelId: params.document.novelId,
-      volumeId: params.targetVolume.id,
-      taskId: params.options.taskId,
-      stage: "structured_outline",
-      itemKey: "chapter_list",
-      scope: "chapter_list",
-      entrypoint: params.options.entrypoint,
-      signal: params.options.signal,
-    },
-  });
+  const chunks = splitBeatIntoChapterChunks(params.beatPlan);
+  const currentBeatTitles: string[] = [];
+  // 同 beat 已生成标题排在占用清单最前：分块撞车几乎都发生在同 beat 内
+  // （各块重写同一段故事），把最相关的约束放在模型注意力最强的位置。
+  const orderedReservedTitles = () => Array.from(new Set([...currentBeatTitles, ...reservedChapterTitles]));
+  if (chunks.length <= 1) {
+    return runChunk(chunks[0]!, params.previousBeatChapterSummary ?? null, orderedReservedTitles());
+  }
 
-  return generated.output;
+  const collectedChapters: GeneratedVolumeChapterBlock["chapters"] = [];
+  let carryoverSummary: string | null = params.previousBeatChapterSummary ?? null;
+  for (const chunk of chunks) {
+    const block = await runChunk(chunk, carryoverSummary, orderedReservedTitles());
+    if (block.beatKey !== params.beatPlan.beat.key) {
+      throw new Error(`节奏段「${params.beatPlan.beat.label}」分块生成的 beatKey 不一致。`);
+    }
+    collectedChapters.push(...block.chapters);
+    currentBeatTitles.push(...block.chapters.map((chapter) => chapter.title));
+    carryoverSummary = appendChunkCarryoverSummary(
+      carryoverSummary,
+      block.chapters,
+      params.beatPlan.beat.label,
+    );
+  }
+
+  if (collectedChapters.length !== params.beatPlan.chapterCount) {
+    throw new Error(
+      `节奏段「${params.beatPlan.beat.label}」分块生成后共 ${collectedChapters.length} 章，应为 ${params.beatPlan.chapterCount} 章。`,
+    );
+  }
+
+  return {
+    beatKey: params.beatPlan.beat.key,
+    beatLabel: params.beatPlan.beat.label,
+    chapterCount: params.beatPlan.chapterCount,
+    chapters: collectedChapters,
+  };
 }
 
 export async function generateBeatChunkedChapterList(params: {
@@ -434,11 +703,15 @@ export async function generateBeatChunkedChapterList(params: {
       }),
       preservedBeatChapterSummary: generationMode === "single_beat"
         ? buildPreservedBeatSummary({
-          existingBeatBlocks,
-          targetBeatIndex: currentBeatIndex,
-        })
+            existingBeatBlocks,
+            targetBeatIndex: currentBeatIndex,
+          })
         : null,
       chapterBudgets,
+      // 本次运行内已生成 beat 的标题必须下传给后续 beat：
+      // beat 循环复用原始 document，targetVolume.chapters 不会累积，
+      // 不下传则每个 beat 的保留标题列表为空，跨 beat 撞车只能等合并断言才炸。
+      accumulatedChapterTitles: generatedBlocks.flatMap((block) => block.chapters.map((chapter) => chapter.title)),
     });
     generatedBlocks.push(generatedBlock);
 
@@ -458,6 +731,14 @@ export async function generateBeatChunkedChapterList(params: {
     if (!intermediateVolume) {
       throw new Error("当前卷章节列表已生成，但中间合并结果丢失了目标卷。");
     }
+    // 跨块/跨 beat 撞车兜底：聚焦重命名修复 + 确定性兜底，避免一次撞车葬送整个 attempt
+    await ensureUniqueMergedChapterTitles(intermediateVolume.chapters, {
+      volumeTitle: targetVolume.title,
+      beatLabels: new Map(targetBeatSheet.beats.map((beat) => [beat.key, beat.label])),
+      options,
+      novelId: document.novelId,
+      volumeId: targetVolume.id,
+    });
     assertChapterTitleDiversity(intermediateVolume.chapters.map((chapter) => chapter.title));
     await params.notifyIntermediateDocument?.({
       scope: "chapter_list",
@@ -499,6 +780,14 @@ export async function generateBeatChunkedChapterList(params: {
   if (!rawMergedVolume) {
     throw new Error("当前卷章节列表已生成，但合并结果丢失了目标卷。");
   }
+  // 最终合并同样走撞车兜底（此处修复的才是真正返回给调用方的文档）
+  await ensureUniqueMergedChapterTitles(rawMergedVolume.chapters, {
+    volumeTitle: targetVolume.title,
+    beatLabels: new Map(targetBeatSheet.beats.map((beat) => [beat.key, beat.label])),
+    options,
+    novelId: document.novelId,
+    volumeId: targetVolume.id,
+  });
   assertChapterTitleDiversity(rawMergedVolume.chapters.map((chapter) => chapter.title));
   assertMergedVolumeChapterList({
     volume: rawMergedVolume,

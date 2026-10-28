@@ -338,6 +338,10 @@ export const promptAssetLoaderEntries: PromptAssetLoaderEntry[] = [
     load: () => require("../prompts/novel/volume/chapterList.prompts").createVolumeChapterListPrompt({targetChapterCount:1,characterIds:[]}) as UnknownPromptAsset,
   },
   {
+    key: "novel.volume.chapter_title_dedup@v1",
+    load: () => require("../prompts/novel/volume/chapterTitleDedup.prompts").chapterTitleDedupPrompt as UnknownPromptAsset,
+  },
+  {
     key: "novel.volume.chapter_purpose@v3",
     load: () => require("../prompts/novel/volume/chapterDetail.prompts").volumeChapterPurposePrompt as UnknownPromptAsset,
   },

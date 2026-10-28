@@ -13,6 +13,55 @@ import {
   isChapterTitleDiversityIssue,
 } from "../../../../services/novel/volume/chapterTitleDiversity";
 
+/**
+ * 章节摘要「主动动作」词库。
+ *
+ * getChapterFunctionQualityIssue 按本词库计数：整组章节中至少
+ * ceil(章数/3) 章的 summary 必须命中其中一个词，否则判「主动行动不足」。
+ * 系统提示与校验重试指令共用本常量，确保提示词与校验器词表不会漂移
+ * （曾因提示词让模型用「隐忍」等不在校验表内的词，导致 glm 系模型 100% 误报）。
+ */
+export const CHAPTER_ACTIVE_ACTION_VERBS = [
+  // 主动抉择与承诺
+  "决定", "选择", "取舍", "权衡", "拍板", "定下", "立下", "认下", "担下", "应下", "应承", "松口", "改口", "放弃", "拒绝", "回绝",
+  // 主动施压与对抗
+  "逼迫", "逼出", "逼平", "逼退", "逼问", "硬顶", "顶住", "顶回", "咬住", "硬扛", "强压", "反击", "压下", "护住", "守住", "保住",
+  // 主动探查与算计
+  "追查", "设局", "布局", "试探", "摸清", "核出", "算出", "探出", "查出", "查明", "查实", "对出", "盯上", "记下",
+  // 主动置换与交易
+  "交换", "利用", "夺回", "换来", "换得", "让利", "收买", "说服", "押上", "押进", "垫上", "自垫", "贴补", "自掏", "截下", "拦下",
+  // 主动揭穿与拆解
+  "揭穿", "识破", "拆穿", "拆台", "锁死", "堵住", "补上", "填上", "隐瞒",
+  // 主动承担与兜底
+  "承担", "兜底", "拿下", "争下",
+  // 主动出手的时势与身位
+  "抢先", "反手", "当即", "连夜", "趁势", "趁机", "顺势", "出面", "挺身", "张罗", "揽下", "揽过", "提议", "撑住", "承认", "转向",
+] as const;
+
+/**
+ * 「阶段性兑现」词库：章数 ≥5 时整组至少一章 summary 必须命中本词库，
+ * 末章也必须命中本词库或 CHAPTER_HOOK_WORDS。与 ACTIVE 词库同源扩容：
+ * 原 16 词只认字面「兑现/反转/落定」，模型自然的「补齐/持平/见底/入仓/
+ * 站稳」全部漏判，曾导致兑现闸在真实输出上 12/15 误报。
+ */
+export const CHAPTER_PAYOFF_WORDS = [
+  // 原有
+  "兑现", "反转", "揭开", "坐实", "落定", "反击", "胜出", "败露", "失控", "转向", "代价", "后手", "陷阱", "威胁", "逼到", "不得不",
+  // 局面状态变化（模型自然表述）
+  "补齐", "持平", "见底", "入仓", "稳住", "站稳", "立住", "翻身", "翻盘", "倒戈", "反目", "露馅", "兜不住", "落袋", "到手", "谈成", "谈崩", "撕破", "放权", "接手", "接管", "吃亏", "赚回", "争到", "夺下", "安身", "立身", "挤出一条",
+] as const;
+
+/**
+ * 「阅读牵引」词库：末章 summary 或标题命中 payoff/hook 词库即放行。
+ * 扩容理由同 CHAPTER_PAYOFF_WORDS；与原钩子词（但/却/反而…）保留并存。
+ */
+export const CHAPTER_HOOK_WORDS = [
+  // 原有
+  "但", "却", "反而", "没想到", "真正", "背后", "代价", "后手", "陷阱", "更大的", "新的", "逼迫", "不得不", "暴露", "留下",
+  // 新增前压词
+  "浮出", "露出", "压过来", "逼近", "临门", "当头", "在即", "一触即发", "瞒不住", "藏不住", "包不住", "没完", "未完", "才开头", "下一笔", "下一招", "暗处", "反扑", "卷土重来",
+] as const;
+
 function safeJsonStringify(value: unknown): string {
   try {
     return JSON.stringify(value, null, 2) ?? String(value);
@@ -43,13 +92,13 @@ function classifyChapterListRetryIssue(reason: string): string {
     return "标题基础质量：标题必须短促客观，不能第一人称、不能过长、不能写成完整剧情句。";
   }
   if (reason.includes("章节中主角或核心视角角色的主动行动不足") || reason.includes("连续多章呈现被动推进")) {
-    return "章节功能：重排每章职责，让核心视角角色主动选择、试探、反击、布局、交换、隐忍或承担代价。";
+    return `章节功能：重排每章职责，让核心视角角色在至少三分之一章节里做出主动动作（用词与校验器一致：${CHAPTER_ACTIVE_ACTION_VERBS.slice(0, 12).join("、")}等），不能只是得知、发现或意识到。`;
   }
   if (reason.includes("过多章节摘要偏空泛")) {
     return "摘要推进：每章 summary 必须写出新增信息、局面变化、冲突推进、关系变化、资源得失或风险转向。";
   }
   if (reason.includes("当前节奏段缺少阶段性兑现") || reason.includes("结尾章缺少当前 beat")) {
-    return "结尾牵引：最后一章必须完成当前 beat 的阶段兑现、明确转向或进入下一 beat 的阅读压力。";
+    return `结尾牵引：至少一章 summary 要体现阶段性兑现（用词与校验器一致：${CHAPTER_PAYOFF_WORDS.slice(0, 14).join("、")}等），最后一章必须落在兑现或阅读牵引上，不能全是平滑铺垫。`;
   }
   return "综合质量：按失败原因重排标题、章节功能和摘要推进，保证每章都有新增变化。";
 }
@@ -145,64 +194,11 @@ function getChapterFunctionQualityIssue(
     /危机.*出现/,
   ];
 
-  const activePatterns = [
-    /决定/,
-    /选择/,
-    /试探/,
-    /反击/,
-    /布局/,
-    /交换/,
-    /逼迫/,
-    /隐瞒/,
-    /揭穿/,
-    /设局/,
-    /追查/,
-    /拒绝/,
-    /承认/,
-    /利用/,
-    /夺回/,
-    /放弃/,
-    /承担/,
-    /压下/,
-    /转向/,
-  ];
+  const activePatterns = CHAPTER_ACTIVE_ACTION_VERBS.map((verb) => new RegExp(verb));
 
-  const payoffPatterns = [
-    /兑现/,
-    /反转/,
-    /揭开/,
-    /坐实/,
-    /落定/,
-    /反击/,
-    /胜出/,
-    /败露/,
-    /失控/,
-    /转向/,
-    /代价/,
-    /后手/,
-    /陷阱/,
-    /威胁/,
-    /逼到/,
-    /不得不/,
-  ];
+  const payoffPatterns = CHAPTER_PAYOFF_WORDS.map((word) => new RegExp(word));
 
-  const hookPatterns = [
-    /但/,
-    /却/,
-    /反而/,
-    /没想到/,
-    /真正/,
-    /背后/,
-    /代价/,
-    /后手/,
-    /陷阱/,
-    /更大的/,
-    /新的/,
-    /逼迫/,
-    /不得不/,
-    /暴露/,
-    /留下/,
-  ];
+  const hookPatterns = CHAPTER_HOOK_WORDS.map((word) => new RegExp(word));
 
   const vagueCount = summaries.filter((summary) =>
     vagueSummaryPatterns.some((pattern) => pattern.test(summary)),
@@ -338,15 +334,18 @@ export function createVolumeChapterListPrompt(
               "4. 不要只局部替换触发校验的一章；需要保证整组章节的标题骨架、章节功能、摘要推进和结尾牵引同时通过。",
               "5. 若失败原因是标题重复或标题骨架集中，必须重写所有命中重复骨架的标题，而不是只局部修补几章。",
               "6. 若失败原因是章节功能重复，必须重新分配章节功能，避免连续多章只做调查、发现、意识到或铺垫。",
-              "7. 每章 summary 必须体现新增推进，优先体现核心视角角色的选择、试探、反击、布局、交换、隐忍或承担代价。",
+              `7. 至少 ${Math.ceil(targetChapterCount / 3)} 章的 summary 必须命中主动动作词库（与业务校验器逐字一致）：${CHAPTER_ACTIVE_ACTION_VERBS.join("、")}。其余章节也要体现新增推进，不能只是得知、发现或意识到。`,
               "8. 明确避免大量使用“X的Y / X中的Y / 在X中Y”骨架。",
               "9. 明确避免整批标题继续塌成“A，B / 四字动作，四字结果”并列模板。",
               "10. 标题必须是客观章名，不用第一人称，不写成完整剧情句，核心字数不超过 16 个。",
               "11. 每章 beatKey 必须保持为当前目标 beatKey。",
-              "12. 摘要必须体现本章造成的局面变化，不得空泛复述标题。",
+              `12. 摘要必须体现本章造成的局面变化，不得空泛复述标题；整组至少一章要落在阶段性兑现词库上（与业务校验器逐字一致）：${CHAPTER_PAYOFF_WORDS.join("、")}。最后一章必须落在兑现或阅读牵引上。`,
               isBookFinale
                 ? "13. 全书终章必须完成结局合同，不得创建必须续写的新主线或下一 beat 钩子。"
                 : "13. 最后一章必须完成当前 beat 的 mustDeliver，同时留下阅读牵引，但不得提前兑现下一 beat 的核心事件。",
+              reservedChapterTitles.length > 0
+                ? `14. 以下章节名已被占用，重写后仍不得重复使用：${reservedChapterTitles.join("、")}`
+                : "",
               "",
               "上一次的 JSON 输出：",
               safeJsonStringify(parsedOutput),
@@ -402,14 +401,14 @@ export function createVolumeChapterListPrompt(
           "1. 生成前必须在脑内把当前 beat 拆成若干章节功能：承接、加压、试探、发现、转折、反击、兑现、余波或钩子。",
           "2. 实际输出时不要暴露这些功能标签，但每章 summary 必须体现清晰功能。",
           "3. 连续章节不能承担完全相同的功能，尤其不能连续多章只做调查、讨论、铺垫、等待、意识到或发现。",
-          "4. 若目标章数大于等于 5，至少应包含一次局面加压、一次关键发现或判断反转、一次阶段性兑现或明确转向。",
+          `4. 若目标章数大于等于 5，至少应包含一次局面加压、一次关键发现或判断反转、一次阶段性兑现或明确转向；阶段性兑现的判定词库（与业务校验器一致）：${CHAPTER_PAYOFF_WORDS.join("、")}。`,
           "5. 关键推进可以占更多章节，过渡章要短促有力，不要为了凑数制造低信息密度章节。",
           withSchedule ? "6. 若用户指定为全书终章，完成结局合同，不创建新主线；否则兑现当前 beat 的 mustDeliver 并留下阅读牵引，不能偷跑下一 beat。" : isBookFinale
             ? "6. 全书终章必须完成结局合同中的主冲突、关系变化、核心回报与主题落点，不得留下必须续写的新主线。"
             : "6. 最后一章必须完成当前 beat 的 mustDeliver，同时留下进入下一 beat 的阅读牵引，但不得提前兑现下一 beat 的核心事件。",
           "",
           "五、章节推进质量要求",
-          "1. 每章 summary 都要体现核心视角角色的选择、试探、反击、隐忍、交换、布局、揭穿、妥协或承担代价，避免角色只是旁观外部事件。",
+          `1. 每章 summary 都要体现核心视角角色的主动动作，避免角色只是旁观外部事件。整组章节中至少 ${Math.ceil(targetChapterCount / 3)} 章的 summary 必须命中主动动作词库（与业务校验器逐字一致）：${CHAPTER_ACTIVE_ACTION_VERBS.join("、")}。`,
           "2. 每章 summary 应包含至少一种有效推进：新情报、风险升级、关系变化、资源得失、误判修正、对手后手、阶段兑现。",
           "3. 不要把章节写成“发现问题—意识到危险—继续调查”的重复链条。",
           "4. 可以制造或利用信息差、误判、反常发现、表面胜利下的暗中代价，但不要把完整因果句塞进标题。",
@@ -463,6 +462,15 @@ export function createVolumeChapterListPrompt(
         [
           "请基于以下上下文，输出当前节奏段的章节块。",
           "",
+          promptInput.targetChapterStartOrder && promptInput.targetChapterEndOrder
+            ? `本次生成全卷连续编号第 ${promptInput.targetChapterStartOrder}-${promptInput.targetChapterEndOrder} 章，必须承接已生成章节的局面向后推进，不得把本块写成节奏段开篇或重新起线。`
+            : "",
+          reservedChapterTitles.length > 0
+            ? [
+                "以下章节名已被占用（本卷已生成章节），新章节不得重复使用，也不得使用只改一两个字的近似变体：",
+                ...reservedChapterTitles.map((title) => `- ${title}`),
+              ].join("\n")
+            : "",
           "输出要求：",
           "- 只输出严格 JSON",
           `- beatKey 必须严格等于 ${targetBeatKey}`,
