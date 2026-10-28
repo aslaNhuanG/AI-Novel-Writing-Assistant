@@ -188,8 +188,8 @@ export default function LiveExecutionDialog(props: LiveExecutionDialogProps) {
       return;
     }
     latestSessionIdRef.current = latestSessionId;
-    followLatestRef.current = true;
-    setFollowingLatest(true);
+    // 只做自动聚焦（展开最新会话、收起旧已完成会话），不强制恢复「跟随最新输出」：
+    // 用户取消勾选后，新 task / 新调用开始也不得把勾选顶回去，停留位置由用户自己决定。
     setCollapsedSessionIds((previous) => {
       const next = new Set(previous);
       for (const session of orderedSessions) {
@@ -207,6 +207,14 @@ export default function LiveExecutionDialog(props: LiveExecutionDialogProps) {
     followLatestRef.current = true;
     setFollowingLatest(true);
     if (logRef.current) {
+      latestSessionRef.current?.scrollIntoView({ block: "end" });
+    }
+  };
+
+  const toggleFollowLatest = (next: boolean) => {
+    followLatestRef.current = next;
+    setFollowingLatest(next);
+    if (next) {
       latestSessionRef.current?.scrollIntoView({ block: "end" });
     }
   };
@@ -520,7 +528,18 @@ export default function LiveExecutionDialog(props: LiveExecutionDialogProps) {
               "flex shrink-0 items-center justify-between gap-3 border-t border-emerald-400/25 bg-[#0d1714] px-3 text-xs text-emerald-100/65",
               briefMode ? "py-1.5" : "py-2",
             )}>
-              <span>{followingLatest ? "正在跟随最新输出" : "已停留在当前阅读位置"}</span>
+              <label
+                className="flex cursor-pointer select-none items-center gap-1.5"
+                title="勾选后新输出自动滚动到底部；取消勾选后停在你当前阅读的位置"
+              >
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 shrink-0 cursor-pointer accent-emerald-400"
+                  checked={followingLatest}
+                  onChange={(event) => toggleFollowLatest(event.target.checked)}
+                />
+                <span>{followingLatest ? "正在跟随最新输出" : "已停留在当前阅读位置"}</span>
+              </label>
               {!briefMode ? (
                 <Button type="button" size="sm" variant="ghost" className="h-7 px-2 font-mono text-xs text-emerald-200 hover:bg-emerald-400/10 hover:text-emerald-50" onClick={scrollToLatest}>
                   回到最新输出
