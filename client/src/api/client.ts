@@ -2,10 +2,13 @@ import axios, { AxiosError } from "axios";
 import type { ApiResponse } from "@ai-novel/shared/types/api";
 import { API_BASE_URL, API_TIMEOUT_MS } from "@/lib/constants";
 import { toast } from "@/components/ui/toast";
+import {shouldToastApiError} from "@/lib/apiErrors";
 
 export interface ApiHttpError extends Error {
   status?: number;
   details?: unknown;
+  code?: string;
+  requestId?: string;
 }
 
 /** 调用方主动取消的请求不应弹错误提示，交由调用方自行收尾。 */
@@ -16,6 +19,7 @@ export function isCanceledRequest(error: unknown): boolean {
 declare module "axios" {
   interface AxiosRequestConfig {
     silentErrorStatuses?: number[];
+    errorPresentation?: "toast" | "inline";
   }
 }
 
@@ -38,7 +42,6 @@ apiClient.interceptors.response.use(
     const status = error.response?.status;
     const backendError = error.response?.data?.error;
     const backendMessage = error.response?.data?.message;
-    const silentErrorStatuses = error.config?.silentErrorStatuses ?? [];
     const source = error.response?.data as (ApiResponse<unknown> & {sourceRoute?: unknown; sourceActionLabel?: unknown}) | undefined;
     const sourceRoute = typeof source?.sourceRoute === "string" && /^\/(?!\/)/.test(source.sourceRoute) ? source.sourceRoute : null;
     const sourceAction = status === 409 && sourceRoute ? {label: typeof source?.sourceActionLabel === "string" ? source.sourceActionLabel : "打开创作页面", onClick: () => window.location.assign(sourceRoute)} : undefined;
@@ -53,7 +56,7 @@ apiClient.interceptors.response.use(
       description = backendMessage && backendMessage !== title ? backendMessage : undefined;
     }
 
-    if (!status || !silentErrorStatuses.includes(status)) {
+    if (shouldToastApiError(error.config ?? {}, status)) {
       const isGenericServerErrorToast = title === "服务器错误，请稍后重试。";
 
       if (sourceAction) {
@@ -80,6 +83,8 @@ apiClient.interceptors.response.use(
     ) as ApiHttpError;
     normalizedError.status = status;
     normalizedError.details = error.response?.data;
+    normalizedError.code = error.response?.data?.code;
+    normalizedError.requestId = error.response?.data?.requestId;
     return Promise.reject(normalizedError);
   },
 );
