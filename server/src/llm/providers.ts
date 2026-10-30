@@ -110,6 +110,10 @@ export const PROVIDERS: Record<BuiltinLLMProvider, ProviderConfig> = {
     models: [
       "glm-5.3",
       "glm-5.3-flash",
+      "glm-5.2",
+      "glm-5.1",
+      "glm-5",
+      "glm-5-turbo",
       "glm-4.7",
       "glm-4.7-flash",
       "glm-4.7-flashx",

@@ -74,6 +74,18 @@ function getFallbackModels(provider: LLMProvider, options: GetProviderModelsOpti
   ]);
 }
 
+/**
+ * 厂商的 /models 登记表经常漏掉仍在提供服务的模型（例如 GLM 的 glm-4.7-flash、
+ * glm-4.7-flashx 可以正常调用，但 /models 不返回）。刷新若直接替换，用户点一次
+ * 「刷新模型」就会把可用模型刷没，因此内置厂商一律以本地预设为底做并集。
+ */
+export function mergeProviderModelsWithBuiltIn(provider: LLMProvider, models: string[]): string[] {
+  if (!isBuiltInProvider(provider)) {
+    return models;
+  }
+  return uniqueModels([...PROVIDERS[provider].models, ...models]);
+}
+
 function getCacheKey(provider: LLMProvider, baseURL?: string): string {
   const resolvedBaseURL = resolveProviderBaseUrl(provider, baseURL, baseURL) ?? "";
   return `${provider}::${resolvedBaseURL}`;
@@ -263,7 +275,9 @@ export async function getProviderModels(
 
   try {
     const models = await fetchProviderModels(provider, normalizedApiKey, options.baseURL, options.authMode);
-    return models.length > 0 ? setCachedModels(provider, models, options.baseURL) : fallback;
+    return models.length > 0
+      ? setCachedModels(provider, mergeProviderModelsWithBuiltIn(provider, models), options.baseURL)
+      : fallback;
   } catch {
     const cached = getCachedModels(provider, options.baseURL);
     if (cached && cached.length > 0) {
@@ -280,5 +294,5 @@ export async function refreshProviderModels(
   authMode?: ProviderAuthMode,
 ): Promise<string[]> {
   const models = await fetchProviderModels(provider, apiKey?.trim(), baseURL, authMode);
-  return setCachedModels(provider, models, baseURL);
+  return setCachedModels(provider, mergeProviderModelsWithBuiltIn(provider, models), baseURL);
 }

@@ -8,6 +8,7 @@ const {
   resolveModelsEndpoint,
   serializeHiddenModels,
   serializeModelList,
+  mergeProviderModelsWithBuiltIn,
 } = require("../dist/llm/modelCatalog.js");
 
 test("hidden model storage trims and deduplicates model ids", () => {
@@ -61,4 +62,14 @@ test("custom model catalog uses the configured authentication header", () => {
   assert.deepEqual(buildProviderModelHeaders("custom_gateway", "secret", "none"), {
     Accept: "application/json",
   });
+});
+
+test("built-in provider refresh merges curated presets so vendor omissions do not drop models", () => {
+  // 智谱 /models 实际只返回 11 个模型，漏掉 glm-4.7-flash（该模型仍可调用，只是限流）
+  const remote = ["glm-4.5", "glm-4.6", "glm-5.3"];
+  const merged = mergeProviderModelsWithBuiltIn("glm", remote);
+  assert.ok(merged.includes("glm-4.7-flash"), "刷新后不得丢失预设模型");
+  assert.ok(merged.includes("glm-5.3"));
+  assert.equal(new Set(merged).size, merged.length, "合并结果无重复");
+  assert.deepEqual(mergeProviderModelsWithBuiltIn("custom_gateway", ["only-vendor"]), ["only-vendor"]);
 });
