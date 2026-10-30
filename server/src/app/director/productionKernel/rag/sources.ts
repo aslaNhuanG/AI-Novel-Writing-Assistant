@@ -17,7 +17,7 @@ export async function readKernelRagConfiguration(): Promise<KernelRagConfigurati
   for (const target of targets) {
     const contextWindow = await reader(target.provider, target.model);
     if (contextWindow === null) throw new KernelReadinessError({code: "production_model_capability_missing",
-      message: "检索模型缺少明确的上下文窗口配置，请补齐知识库所用准确模型的能力信息。"});
+      message: `检索模型缺少明确的上下文窗口配置，请补齐知识库所用准确模型的能力信息：${target.provider}/${target.model}。`});
     windows.push({provider: target.provider, model: target.model, contextWindow});
   }
   return {version: 1, enabled: ragConfig.enabled, targets, windows,
