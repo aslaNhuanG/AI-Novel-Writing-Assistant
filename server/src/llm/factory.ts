@@ -23,6 +23,7 @@ import {
   getProviderEnvApiKey,
   getProviderEnvModel,
   isBuiltInProvider,
+  normalizeProviderModelName,
   providerRequiresApiKey,
   PROVIDERS,
   resolveProviderBaseUrl,
@@ -273,10 +274,10 @@ export async function resolveLLMClientOptions(
     throw new Error(`未配置 ${providerName} 的 API Key。`);
   }
 
-  const model = resolvedModel
+  const model = normalizeProviderModelName(resolvedProvider, resolvedModel
     ?? dbSecret?.model
     ?? getProviderEnvModel(resolvedProvider)
-    ?? (isBuiltInProvider(resolvedProvider) ? PROVIDERS[resolvedProvider].defaultModel : undefined);
+    ?? (isBuiltInProvider(resolvedProvider) ? PROVIDERS[resolvedProvider].defaultModel : undefined));
   if (!model) {
     throw new Error(`未配置 ${providerName} 的默认模型。`);
   }

@@ -5,6 +5,31 @@ import {
   type LLMProvider,
 } from "@ai-novel/shared/types/llm";
 
+/**
+ * 厂商模型名别名归一。DeepSeek 官方接口当前只接受 `deepseek-flash` 与 `deepseek-v4-pro`，
+ * 传入旧名会直接 400：
+ *   The supported API model names are deepseek-flash, deepseek-v4-pro, but you passed deepseek-pro.
+ * 这里把历史别名映射到当前受支持名，避免旧的下拉选择 / 本地缓存 / env 配置直接打到接口报错。
+ * 注意：只映射已知失效的旧名，合法模型名原样返回（对内核模型策略的快照校验为零影响）。
+ */
+const PROVIDER_MODEL_ALIASES: Partial<Record<BuiltinLLMProvider, Record<string, string>>> = {
+  deepseek: {
+    "deepseek-pro": "deepseek-v4-pro",
+    "deepseek-v4-flash": "deepseek-flash",
+    "deepseek-chat": "deepseek-flash",
+  },
+};
+
+export function normalizeProviderModelName(
+  provider: LLMProvider,
+  model: string | undefined,
+): string | undefined {
+  const name = model?.trim();
+  if (!name) return model;
+  const aliases = PROVIDER_MODEL_ALIASES[provider as BuiltinLLMProvider];
+  return aliases?.[name] ?? model;
+}
+
 export interface ProviderConfig {
   name: string;
   baseURL: string;
@@ -22,7 +47,9 @@ export const PROVIDERS: Record<BuiltinLLMProvider, ProviderConfig> = {
     name: "DeepSeek",
     baseURL: "https://api.deepseek.com/v1",
     defaultModel: "deepseek-flash",
-    models: ["deepseek-flash", "deepseek-pro", "deepseek-v4-flash", "deepseek-v4-pro"],
+    // 官方接口当前仅支持这两个模型名；旧名 deepseek-pro / deepseek-v4-flash 会被 400，
+    // 因此不再列入预设（避免「刷新模型」时被并集重新加回下拉列表）。
+    models: ["deepseek-flash", "deepseek-v4-pro"],
     envKey: "DEEPSEEK_API_KEY",
     envBaseURLKey: "DEEPSEEK_BASE_URL",
     envModelKey: "DEEPSEEK_MODEL",
