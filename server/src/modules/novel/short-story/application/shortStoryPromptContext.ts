@@ -3,6 +3,7 @@ import type { PromptContextBlock } from "../../../../prompting/core/promptTypes"
 import type { WritingPlatformSnapshot } from "@ai-novel/shared/types/writingPlatform";
 import type { CreationDirection, ShortStoryPlanContract, ShortStoryPlanSegment } from "@ai-novel/shared/types/creationStudio";
 import { buildStoryModePromptBlock, parseStoryModeProfileJson } from "../../../../services/storyMode/storyModeProfile";
+import { shortStoryProseBudget } from "../../../../prompting/prompts/shortStory/shortStory.prompts";
 
 interface ShortStoryFoundationNovel {
   genre?: { name: string; description?: string | null; template?: string | null } | null;
@@ -42,6 +43,7 @@ export function shortStoryPlatformText(snapshot: WritingPlatformSnapshot | null,
 }
 
 export function buildShortStoryWriterContextBlocks(input: {
+  revisionInstruction?: string;
   reference?: ShortStoryReferenceContract;
   originalIdea: string;
   understanding: string;
@@ -59,8 +61,8 @@ export function buildShortStoryWriterContextBlocks(input: {
   });
   return [
     ...(input.reference ? [block("short-story:reference", "creation_reference", JSON.stringify(input.reference), 101)] : []),
-    block("short-story:intent", "creation_intent", JSON.stringify({ originalIdea: input.originalIdea, understanding: input.understanding, direction: input.direction }, null, 2), 100),
-    block("short-story:plan", "short_story_plan", JSON.stringify({ plan: input.plan, currentSegment: input.segment }, null, 2), 100),
+    block("short-story:intent", "creation_intent", JSON.stringify({ originalIdea: input.originalIdea, understanding: input.understanding, direction: input.direction, revisionInstruction: input.revisionInstruction }, null, 2), 100),
+    block("short-story:plan", "short_story_plan", `【本次篇幅】只写第${input.segment.order}段，目标约${input.segment.targetWordCount}字；全篇${input.plan.targetWordCount}字。${shortStoryProseBudget(input.segment.targetWordCount)}字数统计正文去空白、含标点，不含JSON与连续性摘要。\n${JSON.stringify({ plan: input.plan, currentSegment: input.segment }, null, 2)}`, 100),
     block("short-story:continuity", "short_story_continuity", JSON.stringify({ previousContinuity: input.previousContinuity, previousContentTail: input.previousContentTail }, null, 2), 96),
     block("short-story:platform", "writing_platform", shortStoryPlatformText(input.platform, "drafting"), 104),
     block("short-story:production-foundation", "production_foundation", input.productionFoundation, 103),

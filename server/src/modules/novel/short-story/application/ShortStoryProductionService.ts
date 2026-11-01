@@ -383,13 +383,14 @@ export class ShortStoryProductionService {
 
     let qualityDebt: string[] = [];
     if (audited.output.decision === "patchable") {
-      if (this.v2Enabled()) {
         const repaired = await this.generateSingleRepair(context, plan, segments, audited.output, content);
         const candidate = segments.map(segment => ({ ...segment,
           content: segment.userEditedAt ? segment.content : repaired.patches.find(patch => patch.segmentOrder === segment.order)?.content.trim() ?? segment.content,
         }));
         const reviewed = await this.auditManuscript(context, plan, candidate.map(segment => segment.content.trim()).join("\n\n"), "repair_review");
         if (!reviewed) return;
+        console.info("[short-story.review]", { taskId: context.task.id, originalWordCount: countWords(content),
+          candidateWordCount: countWords(candidate.map(segment => segment.content).join("\n\n")), decision: reviewed.output.decision });
         if (postRepairKeepsManuscript(reviewed.output.decision)) {
           await prisma.$transaction(async tx => {
             const current = await tx.shortStorySegment.findMany({ where: { planId: plan.row.id } });
@@ -407,9 +408,6 @@ export class ShortStoryProductionService {
         } else {
           qualityDebt = qualityDebtFromAudit(audited.output);
         }
-      } else {
-        qualityDebt = await this.applySingleRepair(context, plan, segments, audited.output, content);
-      }
     }
     await prisma.shortStoryPlan.update({
       where: { id: plan.row.id },
@@ -468,25 +466,6 @@ export class ShortStoryProductionService {
       });
       return null;
     }
-  }
-
-  private async applySingleRepair(
-    context: Awaited<ReturnType<ShortStoryProductionService["loadContext"]>>,
-    plan: Awaited<ReturnType<ShortStoryProductionService["ensurePlan"]>>,
-    segments: Awaited<ReturnType<ShortStoryProductionService["writePendingSegments"]>>,
-    audit: ShortStoryQualityResult,
-    content: string,
-  ): Promise<string[]> {
-    const repaired = await this.generateSingleRepair(context, plan, segments, audit, content);
-    for (const patch of repaired.patches) {
-      const target = segments.find((segment) => segment.order === patch.segmentOrder);
-      if (!target || target.userEditedAt) continue;
-      await prisma.shortStorySegment.updateMany({
-        where: { id: target.id, version: target.version, userEditedAt: null },
-        data: { content: patch.content.trim(), version: { increment: 1 }, generatedAt: new Date(), qualityResultJson: JSON.stringify({ repairedFromAudit: true }) },
-      });
-    }
-    return repaired.residualQualityDebt;
   }
 
   private async generateSingleRepair(

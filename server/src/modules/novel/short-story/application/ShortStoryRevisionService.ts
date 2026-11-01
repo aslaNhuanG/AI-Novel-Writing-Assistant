@@ -8,6 +8,7 @@ import { AppError } from "../../../../middleware/errorHandler";
 import { runStructuredPrompt } from "../../../../prompting/core/promptRunner";
 import {
   shortStoryPatchRepairPrompt, shortStorySegmentWritePrompt,
+  shortStoryLengthAssessment,
 } from "../../../../prompting/prompts/shortStory/shortStory.prompts";
 import { appendSnapshot, parseJson, type RevisionBaseline } from "../domain/revisionState";
 import { assertBaseline, loadRevisionContext, RevisionConflict } from "./ShortStoryContext";
@@ -183,17 +184,23 @@ export class ShortStoryRevisionService {
       const interpretation = parseJson<CreationIntentInterpretation>(intent.structuredIntentJson, null!);
       const direction = interpretation.directions.find((item) => item.id === preview.selectedDirectionId);
       if (!direction) throw new Error("修改缺少已确认的方向，请重新预览。");
-      const plan = parseJson<ShortStoryPlanContract | null>(job.candidatePlanJson, null);
+      const plan = parseJson<ShortStoryPlanContract | null>(job.candidatePlanJson, null)
+        ?? (job.strategy === "rewrite_downstream" ? context.plan : null);
       await this.assertRunnable(jobId, token);
       await prisma.novelWorkflowTask.updateMany({
         where: { id: task.id, shortStoryOperationId: jobId, status: { in: ["queued", "running"] }, cancelRequestedAt: null },
         data: { status: "running", currentItemKey: "revision_apply", currentItemLabel: "正在按确认的范围修改作品", heartbeatAt: new Date() },
       });
-      if (job.strategy === "full_replan") {
+      if (job.strategy === "full_replan" || job.strategy === "rewrite_downstream") {
         if (!plan) throw new Error("完整调整方案缺失，请重新预览。");
         let previousContinuity = "";
         let previousContentTail = "";
         for (const segment of context.segments) {
+          if (!baseline.affectedIds.includes(segment.id)) {
+            previousContentTail = segment.content.slice(-1800);
+            previousContinuity = parseJson<{ continuitySummary?: string }>(segment.qualityResultJson, {}).continuitySummary ?? previousContinuity;
+            continue;
+          }
           await this.assertRunnable(jobId, token);
           await this.checkVersions(prisma, baseline, job.novelId);
           await prisma.novelWorkflowTask.updateMany({
@@ -212,6 +219,7 @@ export class ShortStoryRevisionService {
             const input = {
               originalIdea: preview.originalIdea, understanding: interpretation.understanding, direction,
               plan, segment: segmentPlan, previousContinuity, previousContentTail,
+              revisionInstruction: preview.revision.understoodGoal,
               writingPlatform: shortStoryPlatformText(platform, "drafting"), bookStyle,
               productionFoundation: context.productionFoundation, reference: context.reference,
             };
@@ -369,10 +377,14 @@ export class ShortStoryRevisionService {
       }
       const preview = parseJson<RevisionPreviewData>(job.intentVersion.impactScopeJson, null!);
       const plan = parseJson<ShortStoryPlanContract | null>(job.candidatePlanJson, null);
+      const finalContent = originals.map(segment => job.candidates.find(candidate => candidate.segmentId === segment.id)?.content ?? segment.content).join("\n\n");
+      const measured = shortStoryLengthAssessment(finalContent, preview.revision.recommendedTargetWordCount);
+      const qualityDebt = parseJson<string[]>(job.qualityDebtJson, []);
+      if (!measured.withinRange) qualityDebt.push(`修改后正文实测${measured.actualWordCount}字，目标${measured.targetWordCount}字，约定范围${measured.minWordCount}～${measured.maxWordCount}字，篇幅仍需调整。`);
       await tx.shortStoryPlan.update({
         where: { id: baseline.planId }, data: {
           intentVersionId: job.intentVersionId, status: "completed", auditResultJson: null,
-          qualityDebtJson: job.qualityDebtJson ?? "[]",
+          qualityDebtJson: JSON.stringify(qualityDebt),
           ...(plan ? { structureJson: JSON.stringify(plan), targetWordCount: plan.targetWordCount,
             endingPromise: plan.endingPromise, schemaVersion: 2 } : {}),
         },

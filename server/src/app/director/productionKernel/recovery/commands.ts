@@ -5,6 +5,7 @@ import { canonicalProductionJson } from "../../../../modules/production/common";
 import { directorChapterBudgetGrantSchema, directorChapterTokenLimitSchema, type DirectorChapterBudgetGrant } from "@ai-novel/shared/types/director/chapterBudget";
 import { AppError } from "../../../../middleware/errorHandler";
 import { readKernelPausedChapterBudget } from "../readModel/budget";
+import { UNKNOWN_MODEL_CLAIM_FILTER } from "../readModel/unknownClaims";
 import { BLOCKED, kernelBudgetMode } from "../execution/budgetReader";
 import { productionBatchOwnerKey } from "../execution/ownership";
 import { resetReplannedUnit } from "./replan";
@@ -28,7 +29,7 @@ async function lockSourceCommand(tx: Prisma.TransactionClient, contract: RunCont
 }
 
 /** Called only by the explicit source-page command, within its existing control/command/event transaction. */
-export async function resumeKernelProduction(contract: RunContract, tx: Prisma.TransactionClient, grant?: DirectorChapterBudgetGrant) {
+export async function resumeKernelProduction(contract: RunContract, tx: Prisma.TransactionClient, grant?: DirectorChapterBudgetGrant, resolveUnknownClaims?: {chapterId: string}) {
   await assertKernelStartReadiness(tx,contract);
   const control = await lockSourceCommand(tx,contract), pause = JSON.parse(control.pauseJson ?? "null");
   await assertKernelCharacterReviewsResolved(tx,contract);
@@ -61,7 +62,34 @@ export async function resumeKernelProduction(contract: RunContract, tx: Prisma.T
       version:run.version,activeStage:null,activeRequestKey:null},data:{progressJson:canonicalProductionJson(progress),version:{increment:1}}});
     if (changed.count !== 1) throw new AppError("质量暂停状态发生变化。",409);
   }
-  // Unknown active requests are retained. Resuming can only recover a durable result, never clear the claim or retry it.
+  if (resolveUnknownClaims) {
+    // A separate, explicit confirmation — never part of a plain resume. The user has
+    // checked the chapter on its source page; only model-step claims of that chapter
+    // are released, and only when the saved manuscript still matches what was committed.
+    const target = runs.find(run=>run.progress.unit.chapterId === resolveUnknownClaims.chapterId);
+    if (!target) throw new AppError("待确认的章节不属于本次创作。",400);
+    const unit = target.progress.unit, range = contract.chapterRange;
+    if (!range || unit.novelId !== contract.novelId || unit.order < range.from || unit.order > range.to) throw new AppError("待确认的章节范围无效。",409);
+    if (target.progress.committedContentHash) {
+      const chapter = await tx.chapter.findFirst({where:{id:unit.chapterId,novelId:contract.novelId,order:unit.order},select:{content:true}});
+      if (!chapter?.content || hashProductionContent(chapter.content) !== target.progress.committedContentHash) throw new AppError("正文已被修改，请先从章节页面检查后再确认。",409);
+    }
+    const released = await tx.chapterArtifactSyncCheckpoint.updateMany({
+      where:{novelId:contract.novelId,chapterId:unit.chapterId,status:"running",sourceType:"production_kernel",
+        ...UNKNOWN_MODEL_CLAIM_FILTER},
+      data:{status:"ready"}});
+    if (!released.count) throw new AppError("本章没有待确认的未决步骤。",400);
+    if (target.activeStage) {
+      // The interrupted stage is re-entered from scratch, so its stale claim on the
+      // unit goes with the released model claims; the stage result was never saved.
+      const cleared = await tx.productionUnitRun.updateMany({where:{id:target.id,ownerKey:target.ownerKey,version:target.version},
+        data:{activeStage:null,activeRequestKey:null,version:{increment:1}}});
+      if (cleared.count !== 1) throw new AppError("章节恢复状态发生变化，请刷新后重试。",409);
+    }
+  }
+  // Unknown active requests are retained. A plain resume can only recover a durable
+  // result, never clear a claim or retry it; releasing one requires the explicit
+  // per-chapter confirmation handled above.
 }
 
 export async function cancelKernelProduction(contract: RunContract, tx: Prisma.TransactionClient) {

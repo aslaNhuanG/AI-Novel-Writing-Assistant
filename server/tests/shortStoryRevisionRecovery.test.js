@@ -84,6 +84,8 @@ function harness(generate) {
   }
   const assets = Object.fromEntries(["shortStoryPlanPrompt", "shortStorySegmentWritePrompt", "shortStoryFullAuditPrompt",
     "shortStoryPatchRepairPrompt", "shortStoryRevisionImpactPrompt"].map((name) => [name, { id: name }]));
+  assets.shortStoryProseBudget = require('../dist/prompting/prompts/shortStory/shortStory.prompts').shortStoryProseBudget;
+  assets.shortStoryLengthAssessment = require('../dist/prompting/prompts/shortStory/shortStory.prompts').shortStoryLengthAssessment;
   function load(file) {
     file = path.resolve(file);
     if (cache.has(file)) return cache.get(file).exports;
@@ -159,6 +161,36 @@ function output(input, strategy = "local_patch") {
   }
 }
 const contents = (novelId) => prisma.shortStorySegment.findMany({ where: { novelId }, orderBy: { order: "asc" } });
+
+test('downstream rewriting uses per-segment candidates and resumes without touching preceding prose', async () => {
+  const f = await fixture();
+  const first = harness(input => {
+    if (input.asset.id === 'shortStorySegmentWritePrompt' && input.promptInput.segment.order === 3) throw Error('injected downstream interruption');
+    return output(input, 'rewrite_downstream');
+  });
+  const preview = await first.studio.previewRevision(f.novel.id, '从第二段开始按字数精简');
+  await first.studio.applyRevision(f.novel.id, preview.intentVersionId);
+  await assert.rejects(first.production.run(f.task.id), /downstream interruption/);
+  assert.deepEqual((await contents(f.novel.id)).map(s=>s.content), ['原文1','原文2','原文3']);
+  assert.deepEqual(first.calls.filter(c=>c.asset==='shortStorySegmentWritePrompt').map(c=>c.order), [2,3]);
+  const resumed = harness(input => output(input, 'rewrite_downstream'));
+  await resumed.studio.retryProduction(f.novel.id);await resumed.production.run(f.task.id);
+  assert.deepEqual(resumed.calls.filter(c=>c.asset==='shortStorySegmentWritePrompt').map(c=>c.order), [3]);
+  assert.deepEqual((await contents(f.novel.id)).map(s=>s.content), ['原文1','新正文2','新正文3']);
+  assert.equal(resumed.calls.find(c=>c.asset==='shortStorySegmentWritePrompt').input.revisionInstruction,'修改线索揭晓');
+});
+
+test('revision publishes usable prose with measured length debt when bounded correction cannot meet the target', async () => {
+  const f = await fixture();
+  const h = harness(input => input.asset.id === 'shortStorySegmentWritePrompt'
+    ? { content: '稿'.repeat(2000), continuitySummary: '保留固定事实与证据' } : output(input, 'full_replan'));
+  const preview = await h.studio.previewRevision(f.novel.id, '按目标篇幅精简');
+  await h.studio.applyRevision(f.novel.id, preview.intentVersionId);await h.production.run(f.task.id);
+  const projection = await h.studio.getProjection(f.novel.id);
+  assert.equal(projection.production.status, 'succeeded');
+  assert.ok(projection.plan.qualityDebt.some(message => message.includes('6000') && message.includes('3000')));
+  assert.equal((await contents(f.novel.id))[0].content.length, 2000);
+});
 
 test("failed local revision retries the same persisted operation and never enters initial audit", async () => {
   const f = await fixture();

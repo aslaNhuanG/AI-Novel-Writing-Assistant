@@ -62,6 +62,9 @@ test('a rejected candidate retains the original audit debt instead of escalating
  const f=await fixture(t,{review:'replan_required'});await f.run();assert.equal((await f.rows())[0].content,'原稿1');
  assert.equal(f.state.checkpoints.at(-1).checkpointType,'workflow_completed');const plan=await f.db.shortStoryPlan.findUniqueOrThrow({where:{id:f.row.id}});assert.deepEqual(JSON.parse(plan.qualityDebtJson),['原稿局部推进略慢']);
 });
-test('the disabled switch keeps the existing single audit and direct repair behavior',async t=>{
- const f=await fixture(t,{enabled:false,window:null});await f.run();assert.equal(f.state.audits,1);assert.equal(f.state.calls.length,2);assert.equal((await f.rows())[0].content,'通过复验的候选稿');
+test('the default short-story path reviews a repair before publishing it',async t=>{
+ const f=await fixture(t,{enabled:false,window:null});await f.run();assert.equal(f.state.audits,2);assert.equal(f.state.calls.length,3);assert.equal((await f.rows())[0].content,'通过复验的候选稿');
+});
+test('the default path preserves original prose when a length repair still fails review',async t=>{
+ const f=await fixture(t,{enabled:false,review:'patchable'});await f.run();assert.equal(f.state.audits,2);assert.equal((await f.rows())[0].content,'原稿1');
 });

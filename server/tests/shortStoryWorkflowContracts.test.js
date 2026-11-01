@@ -54,10 +54,10 @@ test("all creation and short story prompts are registered structured assets", ()
   const keys = [
     "creation.intent.interpret@v3",
     "creation.short_story.reference.extract@v1",
-    "novel.short_story.plan@v3",
-    "novel.short_story.segment.write@v3",
-    "novel.short_story.full.audit@v3",
-    "novel.short_story.patch.repair@v3",
+    "novel.short_story.plan@v4",
+    "novel.short_story.segment.write@v7",
+    "novel.short_story.full.audit@v5",
+    "novel.short_story.patch.repair@v6",
     "novel.short_story.revision.impact@v3",
   ];
 
@@ -67,7 +67,7 @@ test("all creation and short story prompts are registered structured assets", ()
     assert.equal(asset.mode, "structured");
     assert.ok(asset.outputSchema, `${key} must declare outputSchema`);
   }
-  const writer = assets.get("novel.short_story.segment.write@v3");
+  const writer = assets.get("novel.short_story.segment.write@v7");
   assert.equal(writer.management?.proseGeneration, true);
   assert.ok(writer.management?.editModes.includes("advanced_template"));
   assert.ok(writer.slots?.length >= 7);
