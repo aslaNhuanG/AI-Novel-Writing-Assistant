@@ -142,8 +142,11 @@ export class NovelVolumeService {
           conflictLevelSource,
           revealLevel: row.revealLevel ?? null,
           mustAvoid: row.mustAvoid ?? null,
-          taskSheet: row.taskSheet ?? null,
-          sceneCards: row.sceneCards ?? null,
+          // 卷规划工作区（workspace）是 taskSheet/sceneCards 的权威来源，直到显式同步到 Chapter 表。
+          // 仅当 Chapter 表存在非空值（用户在章节编辑器直接修改过）才覆盖；否则保留工作区已生成的规划值，
+          // 避免章节任务单生成后、尚未同步到 Chapter 表时，被 hydrate 用空值覆盖（导演台 chapter_task_sheet 门会因此丢失本阶段结果）。
+          taskSheet: row.taskSheet?.trim() ? row.taskSheet : chapter.taskSheet,
+          sceneCards: row.sceneCards?.trim() ? row.sceneCards : chapter.sceneCards,
         };
         if (JSON.stringify(nextChapter) !== JSON.stringify(chapter)) {
           changed = true;
