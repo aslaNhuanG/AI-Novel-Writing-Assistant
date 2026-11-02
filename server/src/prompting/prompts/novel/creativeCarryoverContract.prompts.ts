@@ -84,9 +84,10 @@ export const creativeCarryoverContractPrompt: PromptAsset<
           : isRewrite
             ? [
               "当前模式：改书（采用用户设定与章纲）。",
-              "新书正史以用户提供的设定与章纲为准：原书专名、角色、世界事实与具体剧情不得覆盖或改写用户设定。",
+              "新书正史以用户提供的设定与章纲为准：与用户设定冲突时，原书专名、角色、世界事实与具体剧情必须让位；用户设定未覆盖之处，可沿用原书事实补充。",
               "原书只提供结构方法、节奏与写法参考；不强制换皮，也不得凭空另造世界观或新主角。",
-              "adaptationFocus 必填：hooks、conflictLoops、payoffRhythm（写成可复用的抽象方法，不绑定原书专名）、conversionPlan（改书执行方案：沿用哪些结构方法、如何映射到用户章纲、哪些原书元素明确丢弃）。",
+              "adaptationFocus 必填：hooks、conflictLoops、payoffRhythm（写成可复用的抽象方法）、conversionPlan（改书执行方案：沿用哪些结构方法、如何映射到用户章纲、哪些内容以用户设定为准、哪些原书细节仅在用户设定未覆盖时作为补充）。",
+              "conversionPlan 不得写成「丢弃原书专名、角色、世界观」这类换皮式表述——改书不是换皮，是否沿用原书元素由用户设定决定。",
               "continuationFocus 必须为 null。",
               "bookRealization 要说明如何把原书的结构方法落到用户的设定与章纲上。",
               "信息不足时不得编造用户的设定或章纲内容；缺少用户资料时只给方法、映射建议与注意事项。",
