@@ -1,5 +1,4 @@
 import { DirectorTaskStateWriter } from "../state";
-import { DirectorStateReader } from "../state/DirectorStateReader";
 import { randomUUID } from "node:crypto";
 import {
   DIRECTOR_CANDIDATE_SETUP_STEPS,
@@ -35,7 +34,6 @@ import {
   normalizeCandidate,
   selectDistinctCandidateTitle,
   type CandidateGenerationContext,
-  type DirectorWorkflowSeedPayload,
 } from "../runtime/novelDirectorHelpers";
 import { DIRECTOR_PROGRESS } from "../projections/novelDirectorProgress";
 import { marketRadarService } from "../../../../modules/marketRadar/application/MarketRadarService";
@@ -162,6 +160,28 @@ function replaceBatchInList(
   return batches.map((batch) => (batch.id === nextBatch.id ? nextBatch : batch));
 }
 
+/** 客户端未显式传 referenceIntent 时，从任务 seed 里已采用的承接合同反推模式（改书/参考创作共用 referenceBookAnalysisId，单看 writingMode 无法区分）。 */
+async function readSeedCarryoverIntent(
+  workflowTaskId: string | undefined,
+): Promise<"continuation" | "adaptation" | "rewrite" | undefined> {
+  if (!workflowTaskId?.trim()) {
+    return undefined;
+  }
+  try {
+    const { DirectorStateReader } = await import("../state/DirectorStateReader");
+    const seed = await new DirectorStateReader().readTaskDataById(workflowTaskId.trim()) as {
+      creativeCarryoverContract?: { mode?: string } | string | null;
+    } | null;
+    const raw = seed?.creativeCarryoverContract;
+    const contract = typeof raw === "string" ? (JSON.parse(raw) as { mode?: string } | null) : raw;
+    return contract?.mode === "continuation" || contract?.mode === "adaptation" || contract?.mode === "rewrite"
+      ? contract.mode
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export class NovelDirectorCandidateStageService {
   constructor(private readonly workflowService: WorkflowDependency) {}
 
@@ -202,6 +222,7 @@ export class NovelDirectorCandidateStageService {
         batches: context.batches,
         presets: context.presets,
         feedback: context.feedback,
+        referenceIntent: context.referenceIntent,
       },
       contextBlocks: buildDirectorCandidateContextBlocks({
         idea: context.idea,
@@ -209,6 +230,7 @@ export class NovelDirectorCandidateStageService {
         latestBatch: context.batches.at(-1),
         presets: context.presets,
         feedback: context.feedback,
+        referenceIntent: context.referenceIntent,
       }),
       options: {
         provider: context.options.provider,
@@ -271,6 +293,7 @@ export class NovelDirectorCandidateStageService {
   }
 
   async generateCandidates(input: DirectorCandidatesRequest): Promise<DirectorCandidatesResponse> {
+    const carryoverIntent = input.referenceIntent ?? await readSeedCarryoverIntent(input.workflowTaskId);
     const marketBriefPrompt = await marketRadarService.getBriefPromptBlock(input.marketBriefId);
     const { novelReferenceService } = await import("../../NovelReferenceService");
     const referenceAnalysisPrompt = await novelReferenceService.buildReferenceFromAnalysisId(
@@ -304,21 +327,6 @@ export class NovelDirectorCandidateStageService {
       model: input.model,
       temperature: input.temperature,
     });
-    // 改书（rewrite）与参考创作都走 referenceBookAnalysisId，单看 writingMode 无法区分。
-    // 以任务里已采用的承接合同为准，决定候选阶段该用哪套正史约束。
-    let isRewriteCarryover = false;
-    if (input.workflowTaskId?.trim()) {
-      try {
-        const seed = await new DirectorStateReader().readTaskDataById(input.workflowTaskId) as DirectorWorkflowSeedPayload | null;
-        const rawContract: unknown = seed?.creativeCarryoverContract;
-        const contract = typeof rawContract === "string"
-          ? (JSON.parse(rawContract) as { mode?: string } | null)
-          : (rawContract as { mode?: string } | null | undefined);
-        isRewriteCarryover = contract?.mode === "rewrite";
-      } catch {
-        isRewriteCarryover = false;
-      }
-    }
     const resolvedInput: DirectorCandidatesRequest = {
       ...input,
       marketBriefPrompt,
@@ -328,10 +336,10 @@ export class NovelDirectorCandidateStageService {
       productionFoundationPrompt: [
         foundation.promptBlock,
         referenceAnalysisPrompt
-          ? isRewriteCarryover
-            ? `改书约束（最高优先）：本作以用户提供的设定与章纲为正史。候选必须围绕这套设定与章纲给出整书方向，不得另造世界观、主角或书名；targetChapterCount 应与用户章纲的体量一致。原书只提供结构方法、节奏与写法参考，其专名与剧情不得进入正史。\n${referenceAnalysisPrompt}`
-            : input.writingMode === "continuation"
-              ? `续写来源约束：保留原作既有事实、角色关系、世界规则和未完线索。\n${referenceAnalysisPrompt}`
+          ? input.writingMode === "continuation"
+            ? `续写来源约束：保留原作既有事实、角色关系、世界规则和未完线索。\n${referenceAnalysisPrompt}`
+            : carryoverIntent === "rewrite"
+              ? `改书约束：新书正史以用户提供的设定与章纲为准，只借鉴原作的结构方法、节奏和写法；原作专名、角色、世界事实与剧情不得覆盖用户设定，不强制换皮。\n${referenceAnalysisPrompt}`
               : `结构参考：只借鉴结构机制、节奏和写法，禁止沿用原作专名、角色、世界事实和具体剧情。\n${referenceAnalysisPrompt}`
           : "",
       ].filter(Boolean).join("\n\n"),
@@ -370,6 +378,7 @@ export class NovelDirectorCandidateStageService {
       presets: [],
       request: resolvedInput,
       options: resolvedInput,
+      referenceIntent: carryoverIntent,
       workflowTaskId: resolvedInput.workflowTaskId,
       productionFoundation: foundation.recommendation,
     });
@@ -399,6 +408,7 @@ export class NovelDirectorCandidateStageService {
   }
 
   async refineCandidates(input: DirectorRefinementRequest): Promise<DirectorRefineResponse> {
+    const carryoverIntent = input.referenceIntent ?? await readSeedCarryoverIntent(input.workflowTaskId);
     if (input.workflowTaskId?.trim()) {
       await new DirectorTaskStateWriter(this.workflowService).initializeTask({
         workflowTaskId: input.workflowTaskId,
@@ -436,6 +446,7 @@ export class NovelDirectorCandidateStageService {
       feedback: input.feedback,
       request: input,
       options: input,
+      referenceIntent: carryoverIntent,
       workflowTaskId: input.workflowTaskId,
     });
     if (!input.workflowTaskId?.trim()) {

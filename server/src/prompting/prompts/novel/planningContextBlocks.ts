@@ -140,6 +140,7 @@ export function buildDirectorCandidateContextBlocks(input: {
   latestBatch?: DirectorCandidateBatch;
   presets: string[];
   feedback?: string;
+  referenceIntent?: "continuation" | "adaptation" | "rewrite";
 }): PromptContextBlock[] {
   return [
     createContextBlock({
@@ -154,6 +155,18 @@ export function buildDirectorCandidateContextBlocks(input: {
       group: "project_context",
       priority: 90,
       content: `Project context:\n${formatProjectContext(input.context) || "none"}`,
+    }),
+    createContextBlock({
+      id: "carryover_mode",
+      group: "project_context",
+      priority: 92,
+      content: input.referenceIntent
+        ? `Reference intent: ${input.referenceIntent}${
+          input.referenceIntent === "rewrite"
+            ? "（改书：候选必须围绕用户起始想法中的设定与章纲展开，不得另造世界观、书名体系或新主角）"
+            : ""
+        }`
+        : "",
     }),
     createContextBlock({
       id: "latest_batch",

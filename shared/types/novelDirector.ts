@@ -665,6 +665,8 @@ export type DirectorWorldSetupMode = NonNullable<DirectorProjectContextInput["wo
 export interface DirectorCandidatesRequest extends DirectorProjectContextInput, DirectorLLMOptions {
   idea: string;
   workflowTaskId?: string;
+  /** 承接模式：候选阶段据此决定沿用/换皮/改书的约束口径。 */
+  referenceIntent?: "continuation" | "adaptation" | "rewrite";
 }
 
 export interface DirectorIdeaContextRequest extends DirectorProjectContextInput, DirectorLLMOptions {
@@ -738,6 +740,7 @@ export interface DirectorRefinementRequest extends DirectorProjectContextInput, 
   presets?: DirectorCorrectionPreset[];
   feedback?: string;
   workflowTaskId?: string;
+  referenceIntent?: "continuation" | "adaptation" | "rewrite";
 }
 
 export interface DirectorCandidatePatchRequest extends DirectorProjectContextInput, DirectorLLMOptions {

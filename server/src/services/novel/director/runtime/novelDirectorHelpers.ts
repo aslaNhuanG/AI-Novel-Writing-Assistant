@@ -101,6 +101,7 @@ export interface CandidateGenerationContext {
   feedback?: string;
   request: DirectorProjectContextInput;
   options: LLMOptions;
+  referenceIntent?: "continuation" | "adaptation" | "rewrite";
 }
 
 const DIRECTOR_ALL_MUTATING_SCOPES: DirectorLockScope[] = [

@@ -452,7 +452,7 @@ export function useAutoDirectorCreateController(input: UseAutoDirectorCreateCont
       runMode,
       currentWorkflowTaskId,
       { styleProfileId: selectedStyleProfileId, worldSetupMode, marketBriefId },
-    ), directorVersion};
+    ), directorVersion, referenceIntent: creativeCarryoverContract?.mode};
   };
 
   const {

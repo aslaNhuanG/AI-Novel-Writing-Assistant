@@ -30,6 +30,7 @@ export interface DirectorCandidatePromptInput {
   batches: DirectorCandidateBatch[];
   presets: DirectorCorrectionPreset[];
   feedback?: string;
+  referenceIntent?: "continuation" | "adaptation" | "rewrite";
 }
 
 export interface DirectorCandidatePatchPromptInput {
@@ -128,6 +129,16 @@ export const directorCandidatePrompt: PromptAsset<
       "若不需要书名备选，可省略 titleOptions 或置为空数组。",
       "不得缺漏字段，不得改名，不得新增 schema 之外字段。",
       "",
+      ...(input.referenceIntent === "rewrite"
+        ? [
+          "【改书模式约束】",
+          "当前是改书：新书正史以用户提供的设定与章纲为准。",
+          "workingTitle 必须贴合用户起始想法中的书名与题材，不得另造一套世界观或主角体系。",
+          "logline、coreConflict、protagonistPath 必须基于用户起始想法里的设定与章纲，不得引入用户没有提供的设定。",
+          "targetChapterCount 必须尊重用户起始想法中给出的章纲规模；未给出时按题材常规体量保守估计。",
+          "仍需输出两套差异化候选，但差异只能在同一正史内的侧重与切入点，不允许改变正史设定。",
+        ]
+        : []),
       "【核心要求】",
       "1. workingTitle 必须是可读的暂定书名，适合封面展示，不要写成策划案口号、世界观概念短语或陈旧套壳名。",
       "2. logline 必须清晰说明：这是谁，在什么处境下，面临什么核心冲突，会朝什么方向展开。",
@@ -142,7 +153,6 @@ export const directorCandidatePrompt: PromptAsset<
       "11. toneKeywords 必须是能帮助后续创作定调的关键词，避免空泛抒情词堆叠。",
       "12. recommendedWritingPlatform 只能是 fanqie_free、qidian_male、jinjiang_female。必须基于作品体验、受众、冲突引擎和推进方式判断，并在 writingPlatformReason 说明。若用户明确指定平台则采用指定值。不得用关键词或题材正则机械路由。",
       "12. targetChapterCount 必须是合理的整书目标体量，与题材密度和推进方式相匹配。",
-      "13. 若【项目上下文补充】标注了写作方式约束（续写来源约束 / 改书约束 / 结构参考），必须以其为最高优先级；改书约束下，候选必须沿用用户提供的设定、章纲与书名，不得另造世界观、主角或新书名。",
       "",
       "【差异化要求】",
       "1. 候选之间必须有明显方向差异，不能只是换词、改名或轻微调整设定包装。",

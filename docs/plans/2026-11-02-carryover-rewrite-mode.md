@@ -68,13 +68,15 @@
 
 第一批只改了承接合同与开书 framing，**候选阶段不读合同**，因此 rewrite 下候选仍会另造书名/世界（实测出现「诡异欠账事务所 / 约 280 章」）。
 
-补齐：
+最终实现（合并了两版方案：客户端显式传递 + 服务端 seed 兜底）：
+
 | 文件 | 改动 |
 |---|---|
-| `server/src/services/novel/director/phases/novelDirectorCandidateStage.ts` | `generateCandidates` 从任务的 seed 读取已采用合同（兼容对象/字符串两种存储），`mode === "rewrite"` 时把 `productionFoundationPrompt` 的参考约束替换为「改书约束（最高优先）：以用户设定与章纲为正史，不得另造世界/主角/书名，targetChapterCount 对齐用户章纲」 |
-| `server/src/prompting/prompts/novel/directorPlanning.prompts.ts` | `novel.director.candidates` 增加规则 13：项目上下文标注写作方式约束时以其为最高优先级；改书约束下沿用用户设定/章纲/书名 |
-
-不改客户端：mode 由服务端从任务合同反推，避免客户端与合同不同步。
+| `shared/types/novelDirector.ts` | `DirectorCandidatesRequest` / `DirectorRefinementRequest` 增加 `referenceIntent` |
+| `client/.../useAutoDirectorCreateController.ts` | `buildCandidateRequestPayload` 携带 `referenceIntent: creativeCarryoverContract?.mode` |
+| `server/.../novelDirectorCandidateStage.ts` | `referenceIntent = 请求显式值 ?? readSeedCarryoverIntent(workflowTaskId)`（从任务 seed 已采用合同反推，兼容对象/字符串存储）；`generateCandidates`/`refineCandidates` 均按该值走约束并传给 prompt；rewrite 下参考约束前缀改为「以用户设定与章纲为正史，不得覆盖用户设定，不强制换皮」 |
+| `server/.../planningContextBlocks.ts` | `buildDirectorCandidateContextBlocks` 增加 `carryover_mode` 块（project_context 组） |
+| `server/.../directorPlanning.prompts.ts` | `novel.director.candidates` 增加 `referenceIntent` 输入与【改书模式约束】：workingTitle 贴合用户想法、不得另造世界观/主角、targetChapterCount 尊重用户章纲规模、差异化只允许同一正史内的侧重 |
 
 ## 4. 风险
 - **产品语义**：新增模式会出现在所有用户的"照着一本书写"里，需要产品确认文案与入口。
