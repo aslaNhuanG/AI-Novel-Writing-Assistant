@@ -142,6 +142,7 @@ export const directorCandidatePrompt: PromptAsset<
       "11. toneKeywords 必须是能帮助后续创作定调的关键词，避免空泛抒情词堆叠。",
       "12. recommendedWritingPlatform 只能是 fanqie_free、qidian_male、jinjiang_female。必须基于作品体验、受众、冲突引擎和推进方式判断，并在 writingPlatformReason 说明。若用户明确指定平台则采用指定值。不得用关键词或题材正则机械路由。",
       "12. targetChapterCount 必须是合理的整书目标体量，与题材密度和推进方式相匹配。",
+      "13. 若【项目上下文补充】标注了写作方式约束（续写来源约束 / 改书约束 / 结构参考），必须以其为最高优先级；改书约束下，候选必须沿用用户提供的设定、章纲与书名，不得另造世界观、主角或新书名。",
       "",
       "【差异化要求】",
       "1. 候选之间必须有明显方向差异，不能只是换词、改名或轻微调整设定包装。",

@@ -1,4 +1,5 @@
 import { DirectorTaskStateWriter } from "../state";
+import { DirectorStateReader } from "../state/DirectorStateReader";
 import { randomUUID } from "node:crypto";
 import {
   DIRECTOR_CANDIDATE_SETUP_STEPS,
@@ -34,6 +35,7 @@ import {
   normalizeCandidate,
   selectDistinctCandidateTitle,
   type CandidateGenerationContext,
+  type DirectorWorkflowSeedPayload,
 } from "../runtime/novelDirectorHelpers";
 import { DIRECTOR_PROGRESS } from "../projections/novelDirectorProgress";
 import { marketRadarService } from "../../../../modules/marketRadar/application/MarketRadarService";
@@ -302,6 +304,21 @@ export class NovelDirectorCandidateStageService {
       model: input.model,
       temperature: input.temperature,
     });
+    // 改书（rewrite）与参考创作都走 referenceBookAnalysisId，单看 writingMode 无法区分。
+    // 以任务里已采用的承接合同为准，决定候选阶段该用哪套正史约束。
+    let isRewriteCarryover = false;
+    if (input.workflowTaskId?.trim()) {
+      try {
+        const seed = await new DirectorStateReader().readTaskDataById(input.workflowTaskId) as DirectorWorkflowSeedPayload | null;
+        const rawContract: unknown = seed?.creativeCarryoverContract;
+        const contract = typeof rawContract === "string"
+          ? (JSON.parse(rawContract) as { mode?: string } | null)
+          : (rawContract as { mode?: string } | null | undefined);
+        isRewriteCarryover = contract?.mode === "rewrite";
+      } catch {
+        isRewriteCarryover = false;
+      }
+    }
     const resolvedInput: DirectorCandidatesRequest = {
       ...input,
       marketBriefPrompt,
@@ -311,9 +328,11 @@ export class NovelDirectorCandidateStageService {
       productionFoundationPrompt: [
         foundation.promptBlock,
         referenceAnalysisPrompt
-          ? input.writingMode === "continuation"
-            ? `续写来源约束：保留原作既有事实、角色关系、世界规则和未完线索。\n${referenceAnalysisPrompt}`
-            : `结构参考：只借鉴结构机制、节奏和写法，禁止沿用原作专名、角色、世界事实和具体剧情。\n${referenceAnalysisPrompt}`
+          ? isRewriteCarryover
+            ? `改书约束（最高优先）：本作以用户提供的设定与章纲为正史。候选必须围绕这套设定与章纲给出整书方向，不得另造世界观、主角或书名；targetChapterCount 应与用户章纲的体量一致。原书只提供结构方法、节奏与写法参考，其专名与剧情不得进入正史。\n${referenceAnalysisPrompt}`
+            : input.writingMode === "continuation"
+              ? `续写来源约束：保留原作既有事实、角色关系、世界规则和未完线索。\n${referenceAnalysisPrompt}`
+              : `结构参考：只借鉴结构机制、节奏和写法，禁止沿用原作专名、角色、世界事实和具体剧情。\n${referenceAnalysisPrompt}`
           : "",
       ].filter(Boolean).join("\n\n"),
     };

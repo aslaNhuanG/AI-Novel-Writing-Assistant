@@ -64,6 +64,18 @@
 - 现有 `creativeCarryoverLifecycle.test.js` 回归（continuation/adaptation 行为不变）。
 - 手工：`mode=rewrite` 生成合同 → 字段齐全、`conversionPlan` 为"改书执行方案"文案；`mode=adaptation` 输出与改造前一致。
 
+### 3.6 第二批：把 rewrite 贯通到「方向候选」
+
+第一批只改了承接合同与开书 framing，**候选阶段不读合同**，因此 rewrite 下候选仍会另造书名/世界（实测出现「诡异欠账事务所 / 约 280 章」）。
+
+补齐：
+| 文件 | 改动 |
+|---|---|
+| `server/src/services/novel/director/phases/novelDirectorCandidateStage.ts` | `generateCandidates` 从任务的 seed 读取已采用合同（兼容对象/字符串两种存储），`mode === "rewrite"` 时把 `productionFoundationPrompt` 的参考约束替换为「改书约束（最高优先）：以用户设定与章纲为正史，不得另造世界/主角/书名，targetChapterCount 对齐用户章纲」 |
+| `server/src/prompting/prompts/novel/directorPlanning.prompts.ts` | `novel.director.candidates` 增加规则 13：项目上下文标注写作方式约束时以其为最高优先级；改书约束下沿用用户设定/章纲/书名 |
+
+不改客户端：mode 由服务端从任务合同反推，避免客户端与合同不同步。
+
 ## 4. 风险
 - **产品语义**：新增模式会出现在所有用户的"照着一本书写"里，需要产品确认文案与入口。
 - **合同质量**：`rewrite` 的合同仍只基于拆书材料生成，**不读取用户设定/章纲**；`conversionPlan` 只能给"方法映射"，具体设定/章纲仍要在导入阶段注入。不要让它假装知道用户设定。
