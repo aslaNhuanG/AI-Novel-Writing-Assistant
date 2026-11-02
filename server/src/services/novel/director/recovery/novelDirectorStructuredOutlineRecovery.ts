@@ -16,6 +16,7 @@ import { DIRECTOR_CHAPTER_DETAIL_MODES } from "../projections/novelDirectorProgr
 import {
   getBeatExpectedChapterCount,
   getBeatSheet,
+  isVolumeChapterListImportedComplete,
   resolveVolumeChapterBeatKey,
 } from "../../volume/volumeGenerationHelpers";
 
@@ -259,8 +260,11 @@ export function resolveStructuredOutlineRecoveryCursor(input: {
   let partialReadyNextBeat: VolumeBeat | null = null;
 
   for (const volume of requiredVolumes) {
+    // 改书/导入路径：作者已自带完整章节列表（章节数>0 且非 partial）时，跳过节奏板与拆章生成，
+    // 直接沿用用户章纲进入任务单细化；节拍板可在后续手动补生成。
+    const importedChapterListComplete = isVolumeChapterListImportedComplete(volume);
     const beatSheet = getBeatSheet(input.workspace, volume.id);
-    if (!beatSheet || beatSheet.beats.length === 0) {
+    if (!importedChapterListComplete && (!beatSheet || beatSheet.beats.length === 0)) {
       return {
         step: "beat_sheet",
         scopeLabel: buildDirectorAutoExecutionScopeLabel(normalizedPlan, null, volume.title),
@@ -283,6 +287,11 @@ export function resolveStructuredOutlineRecoveryCursor(input: {
         chapterOrder: null,
         detailMode: null,
       };
+    }
+
+    if (importedChapterListComplete) {
+      preparedVolumeIds.push(volume.id);
+      continue;
     }
 
     const chapterListCursor = resolveVolumeChapterListCursor({

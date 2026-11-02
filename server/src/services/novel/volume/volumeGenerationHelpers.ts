@@ -42,6 +42,16 @@ export function isVolumeChapterListPartiallyPersisted(volume: Pick<VolumePlan, "
     || normalizedStatus.startsWith(`${VOLUME_CHAPTER_LIST_PARTIAL_STATUS_PREFIX}:`);
 }
 
+/**
+ * 作者导入/预置的完整章节列表：章节数 > 0 且状态不是 partial。
+ * 满足时导演可跳过节奏板与拆章生成，直接沿用用户章纲进入任务单细化（改书/导入路径）。
+ */
+export function isVolumeChapterListImportedComplete(
+  volume: Pick<VolumePlan, "status"> & { chapters: readonly unknown[] },
+): boolean {
+  return volume.chapters.length > 0 && !isVolumeChapterListPartiallyPersisted(volume);
+}
+
 function resolveOriginalVolumeStatus(status: string): string {
   const normalizedStatus = status.trim();
   const prefixedStatus = `${VOLUME_CHAPTER_LIST_PARTIAL_STATUS_PREFIX}:`;
