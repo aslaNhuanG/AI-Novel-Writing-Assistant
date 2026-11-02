@@ -260,11 +260,9 @@ export function resolveStructuredOutlineRecoveryCursor(input: {
   let partialReadyNextBeat: VolumeBeat | null = null;
 
   for (const volume of requiredVolumes) {
-    // 改书/导入路径：作者已自带完整章节列表（章节数>0 且非 partial）时，跳过节奏板与拆章生成，
-    // 直接沿用用户章纲进入任务单细化；节拍板可在后续手动补生成。
-    const importedChapterListComplete = isVolumeChapterListImportedComplete(volume);
     const beatSheet = getBeatSheet(input.workspace, volume.id);
-    if (!importedChapterListComplete && (!beatSheet || beatSheet.beats.length === 0)) {
+    if (!beatSheet || beatSheet.beats.length === 0) {
+      // 节奏板不可跳过：任务单细化（chapter_detail）依赖节拍义务与跨度。
       return {
         step: "beat_sheet",
         scopeLabel: buildDirectorAutoExecutionScopeLabel(normalizedPlan, null, volume.title),
@@ -289,7 +287,9 @@ export function resolveStructuredOutlineRecoveryCursor(input: {
       };
     }
 
-    if (importedChapterListComplete) {
+    // 改书/导入路径：作者已自带完整章节列表（章节数>0 且非 partial）时，跳过拆章生成，
+    // 直接沿用用户章纲进入任务单细化；即使节拍跨度与章数不匹配也不补写。
+    if (isVolumeChapterListImportedComplete(volume)) {
       preparedVolumeIds.push(volume.id);
       continue;
     }
