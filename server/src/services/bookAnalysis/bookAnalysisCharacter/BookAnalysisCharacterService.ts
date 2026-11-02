@@ -474,7 +474,11 @@ export class BookAnalysisCharacterService {
           provider: context.provider,
           model: context.model,
           temperature: context.temperature,
-          maxTokens: context.maxTokens,
+          // 角色档案是「profile + profileSections + arcs + scenes」的单次结构化输出，默认 8 个维度。
+          // context.maxTokens 取自分析记录（未设置时回落到 planner 路由的 8192），主角这类长档案
+          // 会被 8192 截断 → finishReason=length → output_budget_exhausted（终端失败，整批 500）。
+          // 这里给档案一个不低于 16000 的输出额度（用户显式设更高则沿用），避免长档案被截断。
+          maxTokens: Math.max(context.maxTokens ?? 0, 16_000),
         },
       });
       await budgetGuard.onSectionFinished(result.meta.tokenUsage);
