@@ -4,7 +4,7 @@ import type { BookAnalysisSectionKey } from "./bookAnalysis";
 export const BOOK_FRAMING_MAX_COMMERCIAL_TAGS = 6;
 export const BOOK_FRAMING_COMMERCIAL_TAG_MAX_LENGTH = 20;
 
-export type BookFramingReferenceIntent = "continuation" | "adaptation";
+export type BookFramingReferenceIntent = "continuation" | "adaptation" | "rewrite";
 
 export interface BookFramingSuggestion {
   targetAudience: string;

@@ -105,11 +105,17 @@ export class NovelDirectorConfirmRuntime {
         }),
       }),
     });
-    const expectedCarryoverMode = resolvedInput.writingMode === "continuation" && resolvedInput.continuationBookAnalysisId
-      ? "continuation" as const
-      : resolvedInput.referenceBookAnalysisId ? "adaptation" as const : "";
+    const seedPayload = await new DirectorStateReader().readTaskDataById(workflowTask.id) as DirectorWorkflowSeedPayload | null;
+    const seedCarryoverContract = seedPayload?.creativeCarryoverContract;
+    // 改书（rewrite）与参考创作共用 referenceBookAnalysisId，无法只靠 writingMode 反推，
+    // 因此优先采用已生成合同里的 mode，避免把 rewrite 误判成 adaptation 而拒绝已采用方案。
+    const expectedCarryoverMode: "continuation" | "adaptation" | "rewrite" | "" = resolvedInput.writingMode === "continuation" && resolvedInput.continuationBookAnalysisId
+      ? "continuation"
+      : seedCarryoverContract?.mode === "rewrite"
+        ? "rewrite"
+        : resolvedInput.referenceBookAnalysisId ? "adaptation" : "";
     const adoptedCarryover = workflowTask.novelId ? null : requireAdoptedCreativeCarryoverContract(
-      (await new DirectorStateReader().readTaskDataById(workflowTask.id) as DirectorWorkflowSeedPayload | null)?.creativeCarryoverContract,
+      seedCarryoverContract,
       expectedCarryoverMode,
       expectedCarryoverMode === "continuation"
         ? resolvedInput.continuationBookAnalysisId

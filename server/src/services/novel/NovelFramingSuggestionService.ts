@@ -16,7 +16,9 @@ function buildInputSummary(input: BookFramingSuggestionInput): string {
       ? "创作意图：续写原作，读者与卖点必须承接原作未完线索与终局人物状态。"
       : input.referenceIntent === "adaptation"
         ? "创作意图：参考创作新书，只继承结构、节奏与阅读体验，必须形成独立故事。"
-        : "",
+        : input.referenceIntent === "rewrite"
+          ? "创作意图：改书，以用户提供的设定与章纲为正史，原书只提供结构方法与节奏参考。"
+          : "",
   ].filter(Boolean).join("\n");
 }
 

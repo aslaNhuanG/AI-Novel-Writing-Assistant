@@ -124,7 +124,8 @@ function AutoDirectorCreatePage() {
   const marketBriefId = searchParams.get("marketBriefId")?.trim() ?? "";
   const referenceMode = searchParams.get("referenceMode") === "continuation" ? "continuation"
     : searchParams.get("referenceMode") === "adaptation" ? "adaptation"
-      : "";
+      : searchParams.get("referenceMode") === "rewrite" ? "rewrite"
+        : "";
   const referenceBookAnalysisId = searchParams.get("bookAnalysisId")?.trim() ?? "";
   const referenceDocumentId = searchParams.get("sourceDocumentId")?.trim() ?? "";
   const referenceTitle = searchParams.get("referenceTitle")?.trim() ?? "";
@@ -275,12 +276,19 @@ function AutoDirectorCreatePage() {
         continuationBookAnalysisSections: [...ALL_BOOK_ANALYSIS_SECTIONS],
         description: current.description || `基于${sourceLabel}现有角色、世界规则、终局状态和未完线索，继续创作后续故事。`,
       }
-      : {
-        writingMode: "original",
-        referenceBookAnalysisId,
-        referenceBookAnalysisSections: [...TRANSFERABLE_BOOK_ANALYSIS_SECTIONS],
-        description: current.description || `参考${sourceLabel}的结构机制、节奏和写法，创作一部拥有全新角色、世界和剧情的独立小说。`,
-      }));
+      : referenceMode === "rewrite"
+        ? {
+          writingMode: "original",
+          referenceBookAnalysisId,
+          referenceBookAnalysisSections: [...TRANSFERABLE_BOOK_ANALYSIS_SECTIONS],
+          description: current.description || `以你提供的设定与章纲为正史，只借${sourceLabel}的结构方法与节奏，改写成你的故事。`,
+        }
+        : {
+          writingMode: "original",
+          referenceBookAnalysisId,
+          referenceBookAnalysisSections: [...TRANSFERABLE_BOOK_ANALYSIS_SECTIONS],
+          description: current.description || `参考${sourceLabel}的结构机制、节奏和写法，创作一部拥有全新角色、世界和剧情的独立小说。`,
+        }));
   }, [referenceBookAnalysisId, referenceDocumentId, referenceMode, referenceTitle]);
 
   useEffect(() => {
@@ -514,7 +522,7 @@ function AutoDirectorCreatePage() {
   // Effect-started mutations can lose their observer during StrictMode's subscription replay.
   // Keep this request's lifecycle with its result so completion always unlocks adoption.
   const generateCarryoverContract = useCallback(async (
-    selection: { mode: "continuation" | "adaptation"; bookAnalysisId: string; key: string },
+    selection: { mode: "continuation" | "adaptation" | "rewrite"; bookAnalysisId: string; key: string },
   ) => {
     const requestId = ++carryoverGenerationIdRef.current;
     const isCurrentRequest = () => carryoverSelectionRef.current === selection.key
@@ -648,7 +656,11 @@ function AutoDirectorCreatePage() {
       ? { kind: "loading" }
       : carryoverPanelState;
   const isCarryoverGenerating = carryoverGeneratingKey === currentCarryoverKey;
-  const carryoverModeLabel = resolvedCarryoverMode === "continuation" ? "续写原作" : "参考创作新书";
+  const carryoverModeLabel = resolvedCarryoverMode === "continuation"
+    ? "续写原作"
+    : resolvedCarryoverMode === "rewrite"
+      ? "改书"
+      : "参考创作新书";
   const carryoverTitle = referenceTitle || activeCarryoverContract?.documentTitle || "参考作品";
   const carryoverStatus = isCarryoverGenerating || visibleCarryoverPanelState.kind === "loading"
     ? "AI 正在整理方案，你可以先完善开书想法。"

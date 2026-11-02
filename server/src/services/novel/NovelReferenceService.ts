@@ -221,9 +221,11 @@ const STAGE_SECTION_MAP: Record<NovelReferenceStage, BookAnalysisSectionKey[]> =
   character: ["character_system"],
 };
 
-const FRAMING_SECTION_KEYS: Record<"continuation" | "adaptation", BookAnalysisSectionKey[]> = {
+const FRAMING_SECTION_KEYS: Record<"continuation" | "adaptation" | "rewrite", BookAnalysisSectionKey[]> = {
   continuation: ["overview", "character_system", "plot_structure", "timeline", "market_highlights"],
   adaptation: ["overview", "plot_structure", "themes", "style_technique", "market_highlights"],
+  // 改书只借结构方法与写法；人物与世界观以用户提供为准，不作为 framing 依据。
+  rewrite: ["overview", "plot_structure", "style_technique", "market_highlights"],
 };
 
 const MAX_FRAMING_REFERENCE_CHARS = 4_500;
@@ -253,7 +255,7 @@ export class NovelReferenceService {
 
   async buildFramingReferenceFromAnalysisId(
     analysisId: string | null | undefined,
-    intent: "continuation" | "adaptation",
+    intent: "continuation" | "adaptation" | "rewrite",
     sectionKeys?: BookAnalysisSectionKey[] | null,
   ): Promise<string> {
     if (!analysisId) {

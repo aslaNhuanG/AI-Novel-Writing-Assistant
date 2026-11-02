@@ -18,7 +18,7 @@ const framingSuggestSchema = llmGenerateSchema.extend({
   genreLabel: z.string().trim().max(120).optional(),
   styleTone: z.string().trim().max(120).optional(),
   bookAnalysisId: z.string().trim().min(1).optional(),
-  referenceIntent: z.enum(["continuation", "adaptation"]).optional(),
+  referenceIntent: z.enum(["continuation", "adaptation", "rewrite"]).optional(),
   bookAnalysisSections: z.array(z.enum([
     "overview",
     "plot_structure",

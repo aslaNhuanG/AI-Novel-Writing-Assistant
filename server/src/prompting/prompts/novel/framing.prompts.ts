@@ -9,7 +9,7 @@ import type { PromptAsset } from "../../core/promptTypes";
 export interface NovelFramingSuggestionPromptInput {
   inputSummary: string;
   analysisContext?: string;
-  referenceIntent?: "continuation" | "adaptation";
+  referenceIntent?: "continuation" | "adaptation" | "rewrite";
 }
 
 export const novelFramingSuggestionSchema = z.object({
@@ -57,6 +57,7 @@ export const novelFramingSuggestionPrompt: PromptAsset<
     const hasAnalysis = Boolean(input.analysisContext?.trim());
     const isContinuation = input.referenceIntent === "continuation";
     const isAdaptation = input.referenceIntent === "adaptation";
+    const isRewrite = input.referenceIntent === "rewrite";
     return [
       new SystemMessage([
         "你是小说项目立项助手，服务对象是不懂策划、不会拆卖点、也不熟悉网文结构的小白作者。",
@@ -75,11 +76,13 @@ export const novelFramingSuggestionPrompt: PromptAsset<
         hasAnalysis
           ? [
             "6. 若提供了拆书结论，必须以拆书结论为主要依据生成卖点与读者定位，不能只根据书名、标题关键词或“参考某某作品”这类元描述空猜。",
-            isAdaptation
-              ? "7. 当前是参考创作新书：只继承钩子、冲突循环、爽点节奏、结构与阅读体验；禁止把原作专名、角色、世界事实或具体剧情写进新书卖点。"
-              : isContinuation
-                ? "7. 当前是续写原作：卖点与前30章承诺必须承接终局人物状态、未完线索和原作读者期待，不能写成另一套无关题材。"
-                : "",
+            isRewrite
+              ? "7. 当前是改书：卖点与前30章承诺必须以用户提供的设定与章纲为准，可沿用其中的专名与人设；原书只提供结构方法与节奏参考，禁止把原书剧情搬进卖点。"
+              : isAdaptation
+                ? "7. 当前是参考创作新书：只继承钩子、冲突循环、爽点节奏、结构与阅读体验；禁止把原作专名、角色、世界事实或具体剧情写进新书卖点。"
+                : isContinuation
+                  ? "7. 当前是续写原作：卖点与前30章承诺必须承接终局人物状态、未完线索和原作读者期待，不能写成另一套无关题材。"
+                  : "",
           ].filter(Boolean).join("\n")
           : "",
         "",

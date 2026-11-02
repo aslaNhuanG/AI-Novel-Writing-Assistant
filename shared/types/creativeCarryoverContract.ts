@@ -3,7 +3,7 @@ import type { BookAnalysisSectionKey } from "./bookAnalysis";
 
 export const CREATIVE_CARRYOVER_CONTRACT_SCHEMA_VERSION = 1 as const;
 
-export const creativeCarryoverModeSchema = z.enum(["continuation", "adaptation"]);
+export const creativeCarryoverModeSchema = z.enum(["continuation", "adaptation", "rewrite"]);
 
 export const creativeCarryoverSectionKeySchema = z.enum([
   "overview",
@@ -72,11 +72,14 @@ export type CreativeCarryoverAdaptationFocus = z.infer<typeof creativeCarryoverA
 export const REQUIRED_SECTIONS_BY_CARRYOVER_MODE: Readonly<Record<CreativeCarryoverMode, readonly BookAnalysisSectionKey[]>> = {
   continuation: ["character_system", "plot_structure"],
   adaptation: ["plot_structure", "style_technique", "market_highlights"],
+  // 改书：结构与写法是唯一要借的东西；人物/世界观以用户提供为准，不强制依赖拆书。
+  rewrite: ["plot_structure", "style_technique"],
 };
 
 export const OPTIONAL_SECTIONS_BY_CARRYOVER_MODE: Readonly<Record<CreativeCarryoverMode, readonly BookAnalysisSectionKey[]>> = {
   continuation: ["timeline", "overview", "worldbuilding", "themes", "style_technique", "market_highlights"],
   adaptation: ["overview", "themes", "timeline", "character_system", "worldbuilding"],
+  rewrite: ["overview", "themes", "timeline", "character_system", "worldbuilding", "market_highlights"],
 };
 
 export function assertCreativeCarryoverFocusForMode(
@@ -98,11 +101,19 @@ export function assertCreativeCarryoverFocusForMode(
     return;
   }
 
+  // 改书与参考创作共用 adaptationFocus 字段，但语义不同：
+  // hooks/conflictLoops/payoffRhythm 表示「可复用的结构方法」，conversionPlan 表示「改书执行方案」。
   if (!draft.adaptationFocus) {
-    throw new Error("参考创作方案必须包含钩子、冲突循环、爽点节奏与新书转换方案。");
+    throw new Error(
+      mode === "rewrite"
+        ? "改书方案必须包含可复用的钩子、冲突循环、爽点节奏与改书执行方案。"
+        : "参考创作方案必须包含钩子、冲突循环、爽点节奏与新书转换方案。",
+    );
   }
   if (draft.continuationFocus) {
-    throw new Error("参考创作方案不应包含续写终局字段。");
+    throw new Error(
+      mode === "rewrite" ? "改书方案不应包含续写终局字段。" : "参考创作方案不应包含续写终局字段。",
+    );
   }
 }
 
@@ -156,6 +167,9 @@ export function buildOpeningIdeaFromCarryoverContract(contract: CreativeCarryove
   const realization = contract.bookRealization.slice(0, 2).join("；");
   if (contract.mode === "continuation") {
     return `续写开篇：${opening}。本书实现：${realization}`;
+  }
+  if (contract.mode === "rewrite") {
+    return `改书开篇：${opening}。本书实现：${realization}`;
   }
   return `参考创作开篇：${opening}。本书实现：${realization}`;
 }

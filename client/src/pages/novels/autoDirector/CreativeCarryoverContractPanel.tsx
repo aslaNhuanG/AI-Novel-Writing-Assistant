@@ -195,6 +195,25 @@ export default function CreativeCarryoverContractPanel({
               </div>
             </PlanDetails>
           ) : null}
+          {contract.mode === "rewrite" && contract.adaptationFocus ? (
+            <PlanDetails title="改书怎么落地" hint="以你的设定与章纲为准 · 只借原书方法">
+              <p className="mb-5 max-w-3xl text-sm leading-7 text-foreground">{contract.adaptationFocus.conversionPlan}</p>
+              <div className="grid gap-6 md:grid-cols-3">
+                <div>
+                  <h3 className="mb-3 text-sm font-medium text-foreground">可复用的钩子方法</h3>
+                  <TraitList items={contract.adaptationFocus.hooks} />
+                </div>
+                <div>
+                  <h3 className="mb-3 text-sm font-medium text-foreground">可复用的冲突循环</h3>
+                  <TraitList items={contract.adaptationFocus.conflictLoops} />
+                </div>
+                <div>
+                  <h3 className="mb-3 text-sm font-medium text-foreground">可复用的爽点节奏</h3>
+                  <TraitList items={contract.adaptationFocus.payoffRhythm} />
+                </div>
+              </div>
+            </PlanDetails>
+          ) : null}
           <p className="pt-2 text-xs leading-5 text-muted-foreground">原文版本 v{contract.documentVersionNumber} · {title}</p>
         </div>
       ) : null}

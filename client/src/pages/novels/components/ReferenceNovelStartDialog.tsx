@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { BookAnalysis } from "@ai-novel/shared/types/bookAnalysis";
-import { BookOpen, Check, GitBranch, Loader2 } from "lucide-react";
+import { BookOpen, Check, GitBranch, Loader2, PencilLine } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { listBookAnalyses } from "@/api/bookAnalysis";
 import { queryKeys } from "@/api/queryKeys";
 import { Button } from "@/components/ui/button";
 import { AppDialogContent, Dialog } from "@/components/ui/dialog";
 
-export type ReferenceNovelCreateMode = "continuation" | "adaptation";
+export type ReferenceNovelCreateMode = "continuation" | "adaptation" | "rewrite";
 
 interface ReferenceNovelStartDialogProps {
   open: boolean;
@@ -42,7 +42,7 @@ export default function ReferenceNovelStartDialog({
   }, [analyses, open, selectedAnalysisId]);
 
   const startCreation = (mode: ReferenceNovelCreateMode) => {
-    if (!selectedAnalysis || (targetForm === "short_story" && mode === "continuation")) {
+    if (!selectedAnalysis || (targetForm === "short_story" && mode !== "adaptation")) {
       return;
     }
     const params = new URLSearchParams({
@@ -115,7 +115,7 @@ export default function ReferenceNovelStartDialog({
         </section>
         <section className="mt-5">
           <div className="text-sm font-medium text-foreground">选择创作方式</div>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
             <button
               type="button"
               className="rounded-xl bg-muted/55 p-5 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
@@ -135,6 +135,16 @@ export default function ReferenceNovelStartDialog({
               <GitBranch className="h-5 w-5" aria-hidden="true" />
               <div className="mt-4 font-semibold text-foreground">{targetForm === "short_story" ? "参考创作新短篇" : "参考创作新书"}</div>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">参考结构、节奏和写法，重新生成角色、世界与剧情。</p>
+            </button>
+            <button
+              type="button"
+              className="rounded-xl bg-muted/55 p-5 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!selectedAnalysis || targetForm === "short_story"}
+              onClick={() => startCreation("rewrite")}
+            >
+              <PencilLine className="h-5 w-5" aria-hidden="true" />
+              <div className="mt-4 font-semibold text-foreground">改书</div>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">{targetForm === "short_story" ? "改书请选长篇；短篇支持借鉴方法、创作新故事。" : "以你提供的设定与章纲为正史，只借原书的结构方法与节奏。"}</p>
             </button>
           </div>
         </section>
