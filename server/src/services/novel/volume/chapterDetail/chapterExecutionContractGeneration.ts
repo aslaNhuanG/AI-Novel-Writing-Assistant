@@ -39,6 +39,11 @@ export function shouldRetryChapterExecutionContract(error: unknown, attempt: num
   if (error instanceof ChapterScenePlanNormalizationError) {
     return true;
   }
+  // 质量门失败纳入反馈重试：门禁的修复建议会作为 guidance 喂回下一轮生成，
+  // 否则每章首生成踩中承接/口径/伏笔类问题就直接失败，只能人工逐章恢复。
+  if (error instanceof ChapterTaskSheetQualityGateError) {
+    return true;
+  }
   return Boolean(
     error
     && typeof error === "object"
