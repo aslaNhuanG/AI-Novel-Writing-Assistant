@@ -177,7 +177,8 @@ export class NovelChapterEditorService {
       options: {
         provider: input.provider ?? "deepseek",
         model: input.model,
-        temperature: input.temperature ?? 0.45,
+        // 候选生成本质是发散任务：低温会让多个候选趋同，触发候选差异校验失败。
+        temperature: input.temperature ?? 0.7,
       },
     });
 
