@@ -135,15 +135,17 @@ export class NovelVolumeService {
           chapterOrder: row.order,
           title: row.title,
           summary: row.expectation?.trim() || chapter.summary,
-          targetWordCount: row.targetWordCount ?? null,
+          // Chapter 行是执行侧权威值；但行尚未同步（null/空）时保留工作区文档里的新值，
+          // 否则章级细化刚写入的边界字段会被回填成 null（ch6/7 死锁的根因）。
+          targetWordCount: row.targetWordCount ?? chapter.targetWordCount ?? null,
           conflictLevel: chapter.conflictLevelSource === "user"
             ? chapter.conflictLevel ?? null
-            : row.conflictLevel ?? null,
+            : row.conflictLevel ?? chapter.conflictLevel ?? null,
           conflictLevelSource,
-          revealLevel: row.revealLevel ?? null,
-          mustAvoid: row.mustAvoid ?? null,
-          taskSheet: row.taskSheet ?? null,
-          sceneCards: row.sceneCards ?? null,
+          revealLevel: row.revealLevel ?? chapter.revealLevel ?? null,
+          mustAvoid: row.mustAvoid ?? chapter.mustAvoid ?? null,
+          taskSheet: row.taskSheet ?? chapter.taskSheet ?? null,
+          sceneCards: row.sceneCards ?? chapter.sceneCards ?? null,
         };
         if (JSON.stringify(nextChapter) !== JSON.stringify(chapter)) {
           changed = true;
