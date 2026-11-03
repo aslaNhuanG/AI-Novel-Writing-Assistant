@@ -144,7 +144,9 @@ export async function generateChapterTaskSheetDetail(params: {
           provider: params.options.provider,
           model: params.options.model,
           temperature: params.options.temperature ?? 0.35,
-          maxTokens: 3_200,
+          // 场景多的章（如舞会/多线咬合）任务单+场景卡+读者体验合同一张 JSON 会超出 3_200
+          // 被截断 → transport_error 连续失败；给到 8_192 头部空间，密章不再截断。
+          maxTokens: 8_192,
           taskId: params.options.taskId,
           entrypoint: params.options.entrypoint,
           novelId: promptInput.workspace.novelId,
