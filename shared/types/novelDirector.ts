@@ -776,6 +776,7 @@ export interface DirectorConfirmRequest extends DirectorProjectContextInput, Dir
   issuePolicy?: DirectorIssuePolicy;
   issuePolicySource?: "global" | "novel";
   completionProfile?: DirectorCompletionProfile;
+  creativeCarryoverContract?: CreativeCarryoverContract | null;
 }
 
 export interface DirectorPlanScene {
