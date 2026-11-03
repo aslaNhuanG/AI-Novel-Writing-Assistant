@@ -238,6 +238,9 @@ export default function ChapterEditorShell(props: ChapterEditorShellProps) {
       setLoadedSnapshotId(null);
       setSaveStatus("saved");
       await invalidateChapterQueries();
+      // 保存会推进服务器 updatedAt；诊断守卫（正文已变化）比较工作区缓存里的
+      // chapterMeta.updatedAt 与 draft.savedUpdatedAt，必须同步刷新工作区，否则保存后点问题卡必报错。
+      onRefreshWorkspace?.();
       await props.onChapterSaved?.();
       toast.success("章节正文已保存。");
     },
