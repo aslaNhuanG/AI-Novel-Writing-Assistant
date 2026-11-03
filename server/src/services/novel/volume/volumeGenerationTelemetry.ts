@@ -123,10 +123,19 @@ export async function withHighMemoryVolumeGenerationGuard<T>(
     return await runner();
   } finally {
     stopRenewingReservation();
-    await reservation.handle.release();
+    // 必须先清进程内并发守卫：release 的 DB 释放偶发失败/挂起（release_failed 已有日志），
+    // 若放在其之后，该书后续所有生成都会 409，直到重启进程。
     const current = activeHighMemoryVolumeGenerations.get(key);
     if (current?.startedAt === now) {
       activeHighMemoryVolumeGenerations.delete(key);
+    }
+    try {
+      await reservation.handle.release();
+    } catch (error) {
+      console.warn("[volume.generation] reservation release failed; DB record will expire by TTL", {
+        key,
+        reason: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 }
