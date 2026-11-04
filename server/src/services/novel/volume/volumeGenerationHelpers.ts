@@ -491,6 +491,21 @@ export function mergeChapterList(
   });
 }
 
+/**
+ * 字数预算属于卷规划配置：章节已有合法预算（>=200）时不被单章生成改写，
+ * 只在章节未配置时采用生成值，避免每章预算被模型猜成 2200/2800/3600。
+ */
+function resolveChapterWordBudget(
+  chapter: VolumeChapterPlan,
+  generatedDetail: Record<string, unknown>,
+): number {
+  const planned = chapter.targetWordCount;
+  if (typeof planned === "number" && planned >= 200) {
+    return planned;
+  }
+  return typeof generatedDetail.targetWordCount === "number" ? generatedDetail.targetWordCount : planned;
+}
+
 function resolveMergedConflictLevel(
   chapter: VolumeChapterPlan,
   generatedDetail: Record<string, unknown>,
@@ -548,7 +563,7 @@ export function mergeChapterDetail(params: {
               : chapter.nextChapterEntryState,
             ...conflictLevelPatch,
             revealLevel: typeof generatedDetail.revealLevel === "number" ? generatedDetail.revealLevel : chapter.revealLevel,
-            targetWordCount: typeof generatedDetail.targetWordCount === "number" ? generatedDetail.targetWordCount : chapter.targetWordCount,
+            targetWordCount: resolveChapterWordBudget(chapter, generatedDetail),
             mustAvoid: typeof generatedDetail.mustAvoid === "string" ? generatedDetail.mustAvoid : chapter.mustAvoid,
             payoffRefs: Array.isArray(generatedDetail.payoffRefs)
               ? generatedDetail.payoffRefs.filter((item): item is string => typeof item === "string")
@@ -566,7 +581,7 @@ export function mergeChapterDetail(params: {
             : chapter.nextChapterEntryState,
           ...conflictLevelPatch,
           revealLevel: typeof generatedDetail.revealLevel === "number" ? generatedDetail.revealLevel : chapter.revealLevel,
-          targetWordCount: typeof generatedDetail.targetWordCount === "number" ? generatedDetail.targetWordCount : chapter.targetWordCount,
+          targetWordCount: resolveChapterWordBudget(chapter, generatedDetail),
           mustAvoid: typeof generatedDetail.mustAvoid === "string" ? generatedDetail.mustAvoid : chapter.mustAvoid,
           payoffRefs: Array.isArray(generatedDetail.payoffRefs)
             ? generatedDetail.payoffRefs.filter((item): item is string => typeof item === "string")
