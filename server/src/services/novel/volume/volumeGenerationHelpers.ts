@@ -498,12 +498,12 @@ export function mergeChapterList(
 function resolveChapterWordBudget(
   chapter: VolumeChapterPlan,
   generatedDetail: Record<string, unknown>,
-): number {
+): number | null {
   const planned = chapter.targetWordCount;
   if (typeof planned === "number" && planned >= 200) {
     return planned;
   }
-  return typeof generatedDetail.targetWordCount === "number" ? generatedDetail.targetWordCount : planned;
+  return typeof generatedDetail.targetWordCount === "number" ? generatedDetail.targetWordCount : planned ?? null;
 }
 
 function resolveMergedConflictLevel(
