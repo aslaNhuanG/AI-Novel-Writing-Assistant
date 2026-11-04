@@ -39,6 +39,8 @@ function createSystemPrompt(mode: ChapterTaskSheetQualityPromptInput["mode"]): s
     "scenes 中的 mustAdvance、mustPreserve、forbiddenExpansion 均为字符串数组；数组是合法类型。mustAdvance 应写具体推进事项，若内容空泛或实际遗漏必要行动，可指出具体内容缺口，不得因为它是数组而判错。",
     "readerExperience.endingHook 是自然语言章末悬念，不要求固定前缀、特殊标点或“下一章悬念”格式。inheritedHookResponsibilities 是承接前文钩子的字符串数组，首章可为空。endingHook、章节 nextChapterEntryState 与末场 exitState 可以描述同一承接；整章 keyTurn 与关键场景 turn 可以呼应，只有实际造成重复执行或事实冲突才提出问题。",
     "可用合同必须满足：本章目标清晰、边界不越章、任务单可执行、读者体验合同明确本章问题、可见回报、主角欲望、主要阻力、关键转折、净变化和钩子责任，场景卡覆盖整章推进并为每场提供阻力、转折、情绪位移和读者价值。",
+    "candidate.summary 是章纲摘要（规划参考），不是逐条必须覆盖的义务清单：只有当 scenePlan 与 summary 在事实层面冲突（事件方向、世界规则、道具来源与持有人、信息差边界）或漏掉本章核心推进事件（推动主线的那两三件）时才判问题；summary 中的次要细节被降级为背景、压缩成一笔或明确移交后续章，属于合理的窗口重排，不算缺陷。",
+    "评估职责是否过载时，须结合 targetWordCount：字数预算足以承载（例如 5000 字以上）且各场景分配合计时，不算 overloading；只有场景字数分配明显失衡或关键场景无法落地时才判 overloaded。",
     "readerExperience.rewardLevel 表示本章计划提供的可见回报强度，只能使用 setup、partial、major；它不是正文完成度、承诺兑现比例或事后结果评级。",
     "即使正文完整兑现了 promisedReward，也不要建议把 rewardLevel 改为 full、complete 或其他值；只有本章计划的回报强度本身与章节职责不匹配时，才建议在 setup、partial、major 之间调整。",
     "还要判断本章是否被塞入过多彼此争夺篇幅的必达义务；如果任务单显示当前章职责已经过载，loadRisk=overloaded，recommendedHandling=replan_window。",
