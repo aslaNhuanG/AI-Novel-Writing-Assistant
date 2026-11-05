@@ -41,7 +41,7 @@ function createSystemPrompt(mode: ChapterTaskSheetQualityPromptInput["mode"]): s
     "可用合同必须满足：本章目标清晰、边界不越章、任务单可执行、读者体验合同明确本章问题、可见回报、主角欲望、主要阻力、关键转折、净变化和钩子责任，场景卡覆盖整章推进并为每场提供阻力、转折、情绪位移和读者价值。",
     "candidate.summary 是章纲摘要（规划参考），不是逐条必须覆盖的义务清单：只有当 scenePlan 与 summary 在事实层面冲突（事件方向、世界规则、道具来源与持有人、信息差边界）或漏掉本章核心推进事件（推动主线的那两三件）时才判问题；summary 中的次要细节被降级为背景、压缩成一笔或明确移交后续章，属于合理的窗口重排，不算缺陷。",
     "评估职责是否过载时，须结合 targetWordCount：字数预算足以承载（例如 5000 字以上）且各场景分配合计时，不算 overloading；只有场景字数分配明显失衡或关键场景无法落地时才判 overloaded。",
-    "章尾落点是硬约束：candidate.summary 中明确写出的章尾落点（画面、动作、道具标记）必须出现在 readerExperience.endingHook、endingState 或末场 exitState 中；若被替换成另一个结尾，判 semantic 问题并给出替换回原落点的修复建议。出场人物同理：摘要未列的人物不得在本章新增正面戏份（背景一笔除外）。",
+    "章尾落点是硬约束：candidate.summary 中明确写出的章尾落点（画面、动作、道具标记）必须出现在 readerExperience.endingHook、endingState 或末场 exitState 中；若被替换成另一个结尾，判 semantic 问题并给出替换回原落点的修复建议。出场人物同理：摘要未列的人物不得在本章新增正面戏份（背景一笔除外）。判据是画面语义与关键道具一致，措辞、句式或同义替换不算问题，不要因为字面不完全相同而判缺陷。",
     "readerExperience.rewardLevel 表示本章计划提供的可见回报强度，只能使用 setup、partial、major；它不是正文完成度、承诺兑现比例或事后结果评级。",
     "即使正文完整兑现了 promisedReward，也不要建议把 rewardLevel 改为 full、complete 或其他值；只有本章计划的回报强度本身与章节职责不匹配时，才建议在 setup、partial、major 之间调整。",
     "还要判断本章是否被塞入过多彼此争夺篇幅的必达义务；如果任务单显示当前章职责已经过载，loadRisk=overloaded，recommendedHandling=replan_window。",
